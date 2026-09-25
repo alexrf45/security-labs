@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Collector provisioning: single-node Wazuh (manager + indexer + dashboard) with
+# its stateful data relocated onto the persistent SIEM volume, so the detection
+# index and agent registrations survive session teardown (ADR-0011 §2,
+# range-safety.md §8). Optionally mirrors agent installers for air-gapped victims.
+#
+# NOTE (to validate in a later sprint): first-run install + migrate is exercised
+# here; re-attaching an EXISTING volume to a FRESH collector reinstalls binaries
+# over pre-existing indexer state and is the fragile path to verify.
+# =============================================================================
+set -euxo pipefail
+exec > >(tee -a /var/log/collector-bootstrap.log) 2>&1
+
+MOUNT="${mount_point}"
+WZ_VER="${wazuh_version}"
+MIRROR="${enable_mirror}"
+MIRROR_PORT="${mirror_port}"
+SERVE_SYSMON="${serve_sysmon}"
+AGENT_PKG="${wazuh_agent_pkg}"
+SENTINEL="$MOUNT/.wazuh-provisioned"
+
+# --- 1. Mount the persistent SIEM volume -------------------------------------
+DEV=""
+for c in ${device} /dev/nvme1n1 /dev/xvdf; do
+  if [ -b "$c" ]; then DEV="$c"; break; fi
+done
+if [ -z "$DEV" ]; then echo "SIEM volume not found; aborting"; exit 1; fi
+if ! blkid "$DEV"; then mkfs.ext4 -L siem "$DEV"; fi
+mkdir -p "$MOUNT"
+grep -q "LABEL=siem" /etc/fstab || echo "LABEL=siem $MOUNT ext4 defaults,nofail 0 2" >> /etc/fstab
+mount -a
+mkdir -p "$MOUNT/wazuh-indexer" "$MOUNT/ossec-etc" "$MOUNT/installers"
+
+# --- 2. Install Wazuh single-node (first run only) ---------------------------
+if [ ! -f "$SENTINEL" ]; then
+  cd /root
+  curl -fsSLO "https://packages.wazuh.com/$WZ_VER/wazuh-install.sh"
+  # -a = all-in-one (manager + indexer + dashboard); -i skips health checks that
+  # fail on small boxes. The dashboard listens on 443; the manager on 1514/1515.
+  bash ./wazuh-install.sh -a -i
+
+  # Relocate stateful dirs onto the persistent volume via bind mounts.
+  systemctl stop wazuh-dashboard wazuh-manager wazuh-indexer || true
+  if [ -d /var/lib/wazuh-indexer ] && [ -z "$(ls -A "$MOUNT/wazuh-indexer")" ]; then
+    cp -a /var/lib/wazuh-indexer/. "$MOUNT/wazuh-indexer/"
+  fi
+  if [ -d /var/ossec/etc ] && [ -z "$(ls -A "$MOUNT/ossec-etc")" ]; then
+    cp -a /var/ossec/etc/. "$MOUNT/ossec-etc/"
+  fi
+  touch "$SENTINEL"
+fi
+
+# --- 3. (Re)establish bind mounts, then start services -----------------------
+# Runs every boot so a fresh collector on an existing volume picks up prior state.
+systemctl stop wazuh-dashboard wazuh-manager wazuh-indexer || true
+for pair in "$MOUNT/wazuh-indexer:/var/lib/wazuh-indexer" "$MOUNT/ossec-etc:/var/ossec/etc"; do
+  src="$${pair%%:*}"; dst="$${pair##*:}"
+  mkdir -p "$dst"
+  grep -q " $dst " /etc/fstab || echo "$src $dst none bind,nofail 0 0" >> /etc/fstab
+  mountpoint -q "$dst" || mount --bind "$src" "$dst"
+done
+chown -R wazuh-indexer:wazuh-indexer /var/lib/wazuh-indexer || true
+systemctl daemon-reload
+systemctl enable --now wazuh-indexer wazuh-manager wazuh-dashboard || true
+
+# --- 4. Optional: mirror agent installers for air-gapped victims -------------
+if [ "$MIRROR" = "true" ]; then
+  cd "$MOUNT/installers"
+  # Windows agent MSI (victims cannot reach the internet to fetch it themselves).
+  [ -f "wazuh-agent.msi" ] || \
+    curl -fsSL "https://packages.wazuh.com/4.x/windows/wazuh-agent-$AGENT_PKG.msi" -o wazuh-agent.msi
+  # Linux agent (deb) for future Linux victims.
+  [ -f "wazuh-agent.deb" ] || \
+    curl -fsSL "https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_$${AGENT_PKG}_amd64.deb" -o wazuh-agent.deb || true
+  if [ "$SERVE_SYSMON" = "true" ]; then
+    [ -f "Sysmon.zip" ] || curl -fsSL "https://download.sysinternals.com/files/Sysmon.zip" -o Sysmon.zip || true
+    [ -f "sysmonconfig.xml" ] || curl -fsSL \
+      "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml" \
+      -o sysmonconfig.xml || true
+  fi
+  # Serve the installer dir over one port (SG/NACL restrict the source to detonation).
+  cat > /etc/systemd/system/agent-mirror.service <<UNIT
+[Unit]
+Description=Wazuh agent installer mirror
+After=network-online.target
+[Service]
+WorkingDirectory=$MOUNT/installers
+ExecStart=/usr/bin/python3 -m http.server $MIRROR_PORT
+Restart=always
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now agent-mirror.service
+fi
+echo "collector provisioning complete"

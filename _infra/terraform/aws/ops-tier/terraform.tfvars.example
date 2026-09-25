@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars, SOPS-encrypt before committing (secrets.md).
+# tailscale_auth_key is best injected at apply time from 1Password rather than
+# written to a file at all:
+#
+#   op run -- env TF_VAR_tailscale_auth_key="op://<vault>/tailscale-range-router/authkey" \
+#     terraform apply
+#
+# project           = "security-labs"
+# aws_region        = "us-east-1"
+# tailnet_hostname  = "range-router"

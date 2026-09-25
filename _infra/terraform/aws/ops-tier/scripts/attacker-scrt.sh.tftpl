@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Attacker box provisioning — reproduces the user's SCRT daily-driver image
+# (github.com/alexrf45/SCRT) on the Kali EC2 host by running SCRT's own build
+# scripts, then adds an i3 desktop (over xrdp) and tmux. The attacker sits on the
+# routed ops subnet, so it has internet to clone/download (unlike detonation hosts).
+# Reached over Tailscale via the subnet router: SSH, or RDP to i3 on 3389.
+# =============================================================================
+set -uxo pipefail
+exec > >(tee -a /var/log/attacker-bootstrap.log) 2>&1
+
+SCRT_REPO="${scrt_repo_url}"
+INSTALL_BUGBOUNTY="${install_bugbounty}"
+ENABLE_GUI="${enable_gui}"
+RDP_PASSWORD="${rdp_password}"
+KALI_USER="kali"
+KALI_HOME="/home/$KALI_USER"
+
+# Kali's default user needs non-interactive sudo for SCRT's apt steps.
+echo "$KALI_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-kali-nopasswd
+chmod 440 /etc/sudoers.d/90-kali-nopasswd
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+# Prerequisites SCRT's scripts assume, plus zsh as the login shell.
+apt-get install -y --no-install-recommends git curl wget zsh unzip tmux ca-certificates
+
+# --- 1. Clone SCRT and stage its scripts/resources where they expect to be ----
+sudo -u "$KALI_USER" git clone --depth 1 "$SCRT_REPO" "$KALI_HOME/SCRT" || true
+if [ -d "$KALI_HOME/SCRT" ]; then
+  cp -r "$KALI_HOME/SCRT/resources" "$KALI_HOME/resources"
+  rm -rf /tmp/sources && cp -r "$KALI_HOME/SCRT/sources" /tmp/sources
+  chown -R "$KALI_USER:$KALI_USER" "$KALI_HOME/resources" /tmp/sources
+  chmod +x /tmp/sources/*.sh
+
+  # --- 2. Run SCRT's own build scripts as the kali user ---------------------
+  # Each is best-effort so one failed download doesn't leave the box unusable.
+  run_scrt() { sudo -u "$KALI_USER" -H bash -lc "$1" || echo "WARN: $1 had errors"; }
+  run_scrt "/tmp/sources/0-base.sh"      # apt tool suite (nmap, netexec, responder, ...)
+  run_scrt "/tmp/sources/1-tools.sh"     # binaries: ffuf, sqlmap, chisel, peass, nvim, ...
+  if [ "$INSTALL_BUGBOUNTY" = "true" ]; then
+    run_scrt "/tmp/sources/2-tools.sh"   # httpx, subfinder, katana, dnsx, ...
+  fi
+  run_scrt "/tmp/sources/3-home.sh"      # shell: oh-my-zsh, starship, tmux.conf, aliases, fns
+  rm -rf /tmp/sources
+fi
+
+# Make zsh the login shell (SCRT is a zsh environment).
+chsh -s /usr/bin/zsh "$KALI_USER" || true
+
+# --- 3. i3 desktop over xrdp + tmux ------------------------------------------
+if [ "$ENABLE_GUI" = "true" ]; then
+  apt-get install -y --no-install-recommends \
+    xorg xserver-xorg xinit dbus-x11 \
+    i3 i3status i3lock dmenu \
+    xrdp kitty fonts-powerline fonts-hack fonts-noto-color-emoji \
+    x11-xserver-utils feh || true
+
+  # i3 launches from ~/.xsession, which xrdp's startwm.sh runs.
+  cat > "$KALI_HOME/.xsession" <<'XSESSION'
+#!/bin/sh
+export TERMINAL=kitty
+if command -v dbus-run-session >/dev/null 2>&1; then
+  exec dbus-run-session -- i3
+else
+  exec i3
+fi
+XSESSION
+  chmod +x "$KALI_HOME/.xsession"
+
+  # Minimal i3 config: Super as mod, kitty as terminal, dmenu launcher.
+  mkdir -p "$KALI_HOME/.config/i3"
+  cat > "$KALI_HOME/.config/i3/config" <<'I3CFG'
+set $mod Mod4
+font pango:Hack 10
+exec --no-startup-id dbus-launch
+bindsym $mod+Return exec kitty
+bindsym $mod+d exec dmenu_run
+bindsym $mod+Shift+q kill
+bindsym $mod+Shift+r restart
+bindsym $mod+Shift+e exec i3-nagbar -t warning -m 'Exit i3?' -B 'Yes' 'i3-msg exit'
+floating_modifier $mod
+bindsym $mod+h focus left
+bindsym $mod+j focus down
+bindsym $mod+k focus up
+bindsym $mod+l focus right
+bindsym $mod+1 workspace number 1
+bindsym $mod+2 workspace number 2
+bindsym $mod+3 workspace number 3
+bindsym $mod+4 workspace number 4
+bindsym $mod+b split h
+bindsym $mod+v split v
+bindsym $mod+f fullscreen toggle
+bar {
+    status_command i3status
+    position top
+}
+I3CFG
+
+  chown -R "$KALI_USER:$KALI_USER" "$KALI_HOME/.xsession" "$KALI_HOME/.config"
+
+  # xrdp login needs a unix password for the kali user. Only set it when one was
+  # supplied (from 1Password at apply time); otherwise leave GUI installed and let
+  # the operator set it. Access is over Tailscale via the router; 3389 is never
+  # exposed publicly (attacker has no public IP; SG ingress is ops-subnet only).
+  if [ -n "$RDP_PASSWORD" ]; then
+    echo "$KALI_USER:$RDP_PASSWORD" | chpasswd
+    adduser xrdp ssl-cert 2>/dev/null || true
+    systemctl enable --now xrdp
+  else
+    systemctl enable xrdp || true
+    echo "NOTE: set a password for '$KALI_USER' then start xrdp to use RDP/i3."
+  fi
+fi
+
+echo "attacker provisioning complete"

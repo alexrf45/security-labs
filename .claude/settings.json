@@ -1,15 +1,53 @@
 {
   "enabledPlugins": {
-    "antigravity-awesome-skills@antigravity-awesome-skills": false
+    "agentic-awesome-skills@agentic-awesome-skills": false,
+    "agentic-bundle-security-engineer@agentic-awesome-skills": true,
+    "agentic-bundle-aas-observability-ir@agentic-awesome-skills": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(terraform validate)",
+      "Bash(terraform fmt:*)",
+      "Bash(terraform output:*)",
+      "Bash(terraform providers:*)",
+      "Bash(terraform version)",
+      "Bash(tflint:*)",
+      "Bash(infracost breakdown:*)",
+      "Bash(infracost output:*)",
+      "Bash(aws ec2 describe-:*)",
+      "Bash(aws sts get-caller-identity:*)",
+      "Bash(aws ce get-:*)",
+      "Bash(aws budgets describe-:*)",
+      "Bash(tailscale status:*)",
+      "Bash(tailscale ip:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(bash _hack/scripts/iac-lint.sh)",
+      "Bash(yamllint:*)"
+    ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "_hack/scripts/guard-mutations.sh"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "if [[ $CLAUDE_FILE_PATH == *.yaml ]]; then yamllint $CLAUDE_FILE_PATH; fi"
+            "command": "if [[ $CLAUDE_FILE_PATH == *.tf ]]; then terraform fmt \"$CLAUDE_FILE_PATH\" >/dev/null 2>&1 || true; fi; if [[ $CLAUDE_FILE_PATH == *.yaml || $CLAUDE_FILE_PATH == *.yml ]]; then yamllint \"$CLAUDE_FILE_PATH\"; fi"
           }
         ]
       }

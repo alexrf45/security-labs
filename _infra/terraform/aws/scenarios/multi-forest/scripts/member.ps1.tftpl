@@ -1,0 +1,61 @@
+<powershell>
+# Member workstation: point DNS at its forest's DC, wait for the domain, then join.
+# Idempotent: skips the join if already a domain member.
+$ErrorActionPreference = "Stop"
+Start-Transcript -Path "C:\bootstrap-member.log" -Append
+
+$admin = [ADSI]"WinNT://./Administrator,user"
+$admin.SetPassword("${domain_admin_password}")
+$admin.SetInfo()
+
+# DNS must be the DC (VPC DNS is disabled, §4b).
+Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | ForEach-Object {
+    Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses ${dc_ip}
+}
+
+$cs = Get-CimInstance Win32_ComputerSystem
+if (-not $cs.PartOfDomain) {
+    while (-not (Test-NetConnection -ComputerName ${dc_ip} -Port 389 -InformationLevel Quiet)) {
+        Start-Sleep -Seconds 30
+    }
+    Start-Sleep -Seconds 30
+    $sec  = ConvertTo-SecureString "${domain_admin_password}" -AsPlainText -Force
+    $cred = New-Object System.Management.Automation.PSCredential("${netbios}\Administrator", $sec)
+    Add-Computer -DomainName "${domain}" -Credential $cred -Restart -Force
+}
+
+%{ if wazuh_manager_ip != "" ~}
+# --- Wazuh agent + Sysmon: telemetry to the collector (ADR-0011 §4c one-way) ---
+# Installers are pulled from the collector's local mirror (victims have no internet
+# route); if the mirror/network path is not enabled the download fails and this block
+# is skipped without failing the boot — telemetry simply starts once the package path
+# (mirror flag, or a baked AMI) is in place. Validate against real boot in a later sprint.
+try {
+    $mgr    = "${wazuh_manager_ip}"
+    $mirror = "http://${wazuh_manager_ip}:${wazuh_mirror_port}"
+    $agentExe = "C:\Program Files (x86)\ossec-agent\wazuh-agent.exe"
+    if (-not (Test-Path $agentExe)) {
+        Invoke-WebRequest -Uri "$mirror/wazuh-agent.msi" -OutFile "C:\wazuh-agent.msi" -UseBasicParsing -TimeoutSec 60
+        Start-Process msiexec.exe -Wait -ArgumentList "/i C:\wazuh-agent.msi /q WAZUH_MANAGER=$mgr WAZUH_REGISTRATION_SERVER=$mgr WAZUH_AGENT_GROUP=${wazuh_agent_group}"
+        Set-Service -Name WazuhSvc -StartupType Automatic
+        Start-Service WazuhSvc
+    }
+%{ if install_sysmon ~}
+    if (-not (Get-Service Sysmon64 -ErrorAction SilentlyContinue)) {
+        Invoke-WebRequest -Uri "$mirror/Sysmon.zip" -OutFile "C:\Sysmon.zip" -UseBasicParsing -TimeoutSec 60
+        Expand-Archive -Path "C:\Sysmon.zip" -DestinationPath "C:\Sysmon" -Force
+        Invoke-WebRequest -Uri "$mirror/sysmonconfig.xml" -OutFile "C:\Sysmon\sysmonconfig.xml" -UseBasicParsing -TimeoutSec 60
+        & "C:\Sysmon\Sysmon64.exe" -accepteula -i "C:\Sysmon\sysmonconfig.xml"
+        $ossec = "C:\Program Files (x86)\ossec-agent\ossec.conf"
+        if ((Test-Path $ossec) -and -not (Select-String -Path $ossec -Pattern "Sysmon/Operational" -Quiet)) {
+            Add-Content -Path $ossec -Value "<ossec_config><localfile><location>Microsoft-Windows-Sysmon/Operational</location><log_format>eventchannel</log_format></localfile></ossec_config>"
+            Restart-Service WazuhSvc
+        }
+    }
+%{ endif ~}
+} catch { Write-Output "Wazuh/Sysmon provisioning skipped: $_" }
+%{ endif ~}
+
+Stop-Transcript
+</powershell>
+<persist>true</persist>
