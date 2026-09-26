@@ -7,7 +7,7 @@
 # --- Tailscale subnet router (ops) ---------------------------------------------
 resource "aws_security_group" "router" {
   name        = "${var.project}-router"
-  description = "Tailscale subnet router: the single human entry path (range-safety.md §3)."
+  description = "Tailscale subnet router: the single human entry path (range-safety.md)."
   vpc_id      = aws_vpc.range.id
 
   tags = {

@@ -40,7 +40,7 @@ by date, not by name.
    | 7 | Telemetry one-way | victims → collector only; collector SG never initiates into a victim subnet | — |
    | 8 | No lab-admin data on scenario hosts | no secrets/SIEM index in scenario `user_data`; grep the scripts | — |
    | 9 | State split intact | three separate local states; downstream roots use tag-filtered **data sources**, never `terraform_remote_state` | — |
-   | 10 | VPC DNS disabled | `enable_dns_support = false` **and** `enable_dns_hostnames = false` + DHCP option set with public resolvers | `aws ec2 describe-vpcs --vpc-ids <id> --attribute enableDnsSupport` (and `enableDnsHostnames`) |
+   | 10 | VPC DNS disabled | `enable_dns_support = false` **and** `enable_dns_hostnames = false` + DHCP option set with public resolvers | `aws ec2 describe-vpc-attribute --vpc-id <id> --attribute enableDnsSupport` (then `enableDnsHostnames`) — **not** `describe-vpcs`, which omits both attributes and returns `null` for them |
    | 11 | SG + NACL ops↔victim separation | victim NACL egress limited to telemetry + ephemeral return, victim↔victim permitted; SG stateful rules intact. **Both are primary** — neither is belt-and-braces | `aws ec2 describe-network-acls` |
 
    `grep` is enough for most of the code column. Invariant 10 is the one that looks fine

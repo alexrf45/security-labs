@@ -17,6 +17,13 @@ and `fmt` work without it.
 **`no package for … hashicorp/aws … cached`**: the gitignored `.terraform/` cache is
 missing. Re-run `terraform init`.
 
+**`InvalidParameterValue` on a security group description at apply**: the description
+contains a character AWS rejects. Allowed are `a-zA-Z0-9`, space and
+`._-:/()#,@[]+=;{}!$*` — so a `§`, an em dash or an arrow fails, and `validate`/`tflint`
+pass right up to the apply. Cite rule files without the section glyph (`range-safety.md`,
+not `range-safety.md §3`). Terraform *variable* descriptions are unaffected; they never
+reach AWS.
+
 **`Invalid value for variable: ssh_public_key`**: the `op://` reference didn't resolve.
 Quote the whole reference (the field is `public key`, with a space) and check you have a
 1Password session. Also fires if a private key was passed by mistake — never do that; it
@@ -91,6 +98,23 @@ by hand.
 needs no internet route. Confirm the **license-included** AMI
 (`windows_ami_owner=amazon`, Base), not BYOL.
 
+## Verification that lies
+
+Two ways an invariant check can *look* like it passed without testing anything. Both are
+worse than a failure, because they close a gate that is still open.
+
+**`EnableDnsSupport` comes back `null`**: `describe-vpcs` does not return the DNS
+attributes at all, so the JMESPath key resolves to `null` — "not asked", not `false`. Use
+`describe-vpc-attribute --attribute enableDnsSupport` (then `enableDnsHostnames`), one
+call each. Anything other than a literal `false` from *that* command is a Blocker.
+
+**A `describe-*` query returns `[]`**: check the filter matched something before reading
+it as an absence. Route tables, for example, carry only a `Name` tag — filtering them on
+`tag:Discovery` matches nothing and `RouteTables[].Routes[]` flattens to `[]`, which is
+indistinguishable from "no default route". Every route table always has the `local` route,
+so `[]` there means the filter missed. Query by `vpc-id` and print all tables with their
+names, per the [deploy runbook](aws-range-deployment.md).
+
 ## Expected, not a fault
 
 **No DNS on a victim host**: VPC DNS is disabled (invariant 10). Victims use their DC as
@@ -111,8 +135,12 @@ above 1024. (`ping` and `nmap -PE` do work: NACL egress rule 320 permits ICMP.)
 **A Windows host looks far too cheap**: infracost priced it as Linux. Re-run with
 `--usage-file infracost-usage.yml`; the bare number is a floor.
 
-**Budget alarm never fired**: `budget_alert_emails` was empty at apply. Re-apply with an
-address, then confirm the AWS subscription email.
+**Budget alarm never fired**: `budget_alert_emails` was empty at apply — re-apply with an
+address and check `describe-subscribers-for-notification`. Do **not** go looking for a
+confirmation email: budget `EMAIL` subscribers need no opt-in (that is an SNS-topic thing),
+so silence before a threshold is crossed is the expected state, not a broken subscription.
+
+**No confirmation email arrived for the budget**: none is sent. See above.
 
 **Spend is higher than expected**: almost always something left running. Run `/lab-status`
 and complete [teardown](aws-range-deployment.md#teardown).

@@ -167,8 +167,13 @@ op run -- terraform plan     # ~44 resources; $0 recurring except the volume
 op run -- terraform apply
 ```
 
-AWS sends a one-time subscription confirmation to each address. **Until you accept it, no
-alarm is delivered** even though the budget looks healthy.
+**No confirmation email is sent, and none is needed.** The budget subscribes the
+addresses directly (`subscriber_email_addresses`, subscription type `EMAIL`), which AWS
+delivers without an opt-in handshake — the confirmation flow only exists for SNS-topic
+subscribers, which this budget does not use. The first mail you ever receive from it is
+a real threshold breach, from `no-reply@budgets.amazonaws.com`. Verify the wiring with
+`describe-notifications-for-budget` / `describe-subscribers-for-notification` below, not
+by waiting for mail.
 
 Optional: `TF_VAR_enable_agent_package_mirror=true` lets air-gapped victims pull Wazuh installers. Off by default;
 needed for Phase 3 telemetry, and must be set in Phase 2 as well.
@@ -178,12 +183,35 @@ needed for Phase 3 telemetry, and must be set in Phase 2 as well.
 ```bash
 op run -- terraform output    # vpc_id, victim_subnet_ids, security_group_ids, siem_volume_id
 
-op run -- aws ec2 describe-vpcs --filters Name=tag:Discovery,Values=range-vpc \
-  --query 'Vpcs[].{id:VpcId,dns:EnableDnsSupport}'          # dns MUST be false
+# DNS attributes are NOT part of describe-vpcs output — asking for them there returns
+# null, which is not the same as false. Use describe-vpc-attribute, one attribute per call.
+VPC=$(op run -- aws ec2 describe-vpcs --filters Name=tag:Discovery,Values=range-vpc \
+  --query 'Vpcs[0].VpcId' --output text)
+
+op run -- aws ec2 describe-vpc-attribute --vpc-id "$VPC" \
+  --attribute enableDnsSupport   --query 'EnableDnsSupport.Value'     # MUST be false
+op run -- aws ec2 describe-vpc-attribute --vpc-id "$VPC" \
+  --attribute enableDnsHostnames --query 'EnableDnsHostnames.Value'   # MUST be false
 
 op run -- aws ec2 describe-volumes \
   --filters Name=tag:Discovery,Values=range-siem-volume --query 'Volumes[].State'
+
+# Invariant 1. Route tables carry only a Name tag (no Discovery tag), so filter by
+# vpc-id and read all three at once: an over-narrow filter matches nothing and
+# flattens to [], which reads exactly like "no default route" but proves nothing.
+# Every route table always has the local route, so [] means the filter missed.
+op run -- aws ec2 describe-route-tables --filters Name=vpc-id,Values="$VPC" \
+  --query 'RouteTables[].{name:Tags[?Key==`Name`]|[0].Value,subnets:Associations[].SubnetId,routes:Routes[].{dst:DestinationCidrBlock,gw:GatewayId}}'
 ```
+
+The route tables must come out exactly like this — one IGW route in the whole range, on
+the ops table:
+
+| Table | Routes | Associations |
+| --- | --- | --- |
+| `<project>-victim-rt` | only `10.40.0.0/16 → local` | every victim subnet |
+| `<project>-ops-rt` | `local` **plus** `0.0.0.0/0 → igw-…` | the ops subnet only |
+| `<project>-main-rt-locked` | only `local` | none |
 
 Also confirm the VPC default security group came out empty, and that the budget has
 notifications attached:
@@ -193,16 +221,25 @@ op run -- aws ec2 describe-security-groups \
   --filters Name=group-name,Values=default Name=vpc-id,Values=<vpc_id> \
   --query 'SecurityGroups[].{in:IpPermissions,out:IpPermissionsEgress}'   # both [] 
 
+ACCT=$(op run -- aws sts get-caller-identity --query Account --output text)
 op run -- aws budgets describe-notifications-for-budget \
-  --account-id "$(op run -- aws sts get-caller-identity --query Account --output text)" \
+  --account-id "$ACCT" \
   --budget-name security-labs-monthly --query 'length(Notifications)'      # expect 4
+
+# And that each notification actually carries your address (a notification with zero
+# subscribers is the real alarm-less failure mode):
+op run -- aws budgets describe-subscribers-for-notification \
+  --account-id "$ACCT" --budget-name security-labs-monthly \
+  --notification ComparisonOperator=GREATER_THAN,NotificationType=ACTUAL,Threshold=100,ThresholdType=PERCENTAGE \
+  --query 'Subscribers[].{type:SubscriptionType,to:Address}'
 ```
 
-- VPC has `EnableDnsSupport = false` (invariant 10).
+- Both VPC DNS attributes are `false` (invariant 10).
 - Victim route table has **no** `0.0.0.0/0` route; the ops route table has one to the IGW.
 - SIEM volume is `available`.
 - Default security group has **no** ingress and **no** egress rules (FSBP/CIS EC2.2).
-- Budget reports 4 notifications, and you have accepted the AWS confirmation email.
+- Budget reports 4 notifications, each with your address as an `EMAIL` subscriber. There
+  is no confirmation email to accept.
 
 Leave this root applied between sessions.
 

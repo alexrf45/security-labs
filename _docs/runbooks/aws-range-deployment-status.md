@@ -8,15 +8,16 @@ Single pane of glass for where the range deployment stands. Update as you go.
 > only, so it is the one page expected to go stale between sessions; re-derive from
 > [live state](#derive-state-from-aws) when in doubt.
 
-**Last updated:** 2026-09-26 · **Branch:** `feat/cloud-native-aws-range` · **Nothing
-deployed yet.**
+**Last updated:** 2026-09-26 · **Branch:** `feat/cloud-native-aws-range` · **Phases 0 and
+1 applied and verified** (`vpc-063adca13af51596c`), gates 1–3 pass. Next: Phase 2, then
+gate 4.
 
 ## Phases
 
 | Phase | Root | Applied | Lifetime | Notes |
 | --- | --- | --- | --- | --- |
-| 0 · Prerequisites | — | ☐ | — | Creds (non-root), 1Password items, Kali subscription, tailnet, SSH agent vault, **account EBS/IMDS baseline** |
-| 1 · Shared fabric | `range-network/` | ☐ | Long-lived | Apply **once**, leave up. `budget_alert_emails` is now required, and the AWS confirmation mail must be accepted |
+| 0 · Prerequisites | — | ☑ 2026-09-26 | — | Creds (non-root), 1Password items, Kali subscription, tailnet, SSH agent vault, **account EBS/IMDS baseline** |
+| 1 · Shared fabric | `range-network/` | ☑ 2026-09-26 | Long-lived | Applied; `vpc-063adca13af51596c`. Leave up. `budget_alert_emails` set, budget shows 4 notifications. `enable_agent_package_mirror = true` set in tfvars for Phase 2/3 — must match in `ops-tier` |
 | 2 · Ops tier | `ops-tier/` | ☐ | Per session | Router + attacker + collector |
 | 3 · Scenario | `scenarios/multi-forest/` | ☐ | Per session | Two forests + trust |
 
@@ -29,9 +30,9 @@ Hard gates, in order. Each must pass before the next phase.
 
 | # | Gate | Phase | Status |
 | --- | --- | --- | --- |
-| 1 | VPC `EnableDnsSupport = false` | 1 | ☐ |
-| 2 | Victim route table has no `0.0.0.0/0` route | 1 | ☐ |
-| 3 | SIEM volume `available` | 1 | ☐ |
+| 1 | Both VPC DNS attributes `false` — `describe-vpc-attribute`, one per call | 1 | ☑ 2026-09-26 |
+| 2 | Victim route table has no `0.0.0.0/0` route | 1 | ☑ 2026-09-26 — victim RT is local-only, both victim subnets associated; IGW route exists only on the ops RT; main RT locked and unassociated |
+| 3 | SIEM volume `available` | 1 | ☑ 2026-09-26 |
 | 4 | **Invariant 10 DNS tests**, see below | 1→2 | ☐ |
 | 5 | Router advertising `10.40.10.0/24`, shell on all three ops hosts | 2 | ☐ |
 | 6 | Collector bootstrap resolved the SIEM volume | 2 | ☐ |
@@ -92,7 +93,7 @@ When this page is stale, these answer it from live state instead:
 
 | Date | Phases applied | Duration | Est. cost | Notes |
 | --- | --- | --- | --- | --- |
-| — | — | — | — | No sessions yet |
+| 2026-09-26 | 0, 1 | — | ≈ $2.70/mo standing (SIEM volume only) | First apply. Gates 1–3 pass: both VPC DNS attributes `false`, victim RT local-only, SIEM volume `available`. Also verified: VPC default SG empty both ways, budget carries 4 notifications. Apply needed one code fix — `§` in a security group description is rejected by AWS (see [terraform.md](../../.claude/rules/terraform.md) style rules). Gate 4 waits on Phase 2/3 hosts. No confirmation email exists for budget `EMAIL` subscribers — nothing to wait for |
 
 Running total this month: **$0** of the **$30** ceiling. Budget fits **9** multi-forest or
 **15** single-forest sessions; 10 multi-forest would exceed it.

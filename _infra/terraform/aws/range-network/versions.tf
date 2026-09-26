@@ -10,4 +10,7 @@ terraform {
       version = "6.66.0" # pinned exact per terraform.md; keep identical across all three roots
     }
   }
+  backend "local" {
+
+  }
 }

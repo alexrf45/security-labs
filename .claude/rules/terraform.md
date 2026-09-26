@@ -67,6 +67,13 @@ The range is provisioned with Terraform. These rules govern how it is written an
   **SOPS-encrypted** by the user before commit. Never modify or re-encrypt a SOPS
   file without explicit user confirmation ([secrets.md](secrets.md)).
 - Every module and scenario root ships a README ([documentation.md](documentation.md)).
+- **Keep `description` on AWS *resources* inside AWS's charset — ASCII only.** Security
+  group and SG-rule descriptions accept only
+  `a-zA-Z0-9`, space, and `._-:/()#,@[]+=;{}!$*`. A `§`, an em dash, or an arrow there
+  fails at **apply**, not at `validate` or `tflint`, so it surfaces only once you are
+  mid-deploy (it cost a Phase 1 apply on 2026-09-26: `range-safety.md §3` in the router
+  SG description). Cite rule files by name without the section glyph. Terraform
+  **variable** descriptions never reach AWS and may use any character.
 - Run `/lint` (fmt + validate + tflint) before handing work back.
 
 ## Provider/topology decision
