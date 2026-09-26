@@ -10,13 +10,20 @@ reach the user's accounts, other segments, or the internet unfiltered.
 
 ## Implementation
 
-The range is provisioned with **Terraform** on **AWS** with local terraform state. Secrets are handled with **1Password** (source of truth) and **SOPS** (encrypted-in-repo files). Entrypoint into the lab via **Tailscale**. The lab is **ephemeral by design** and runs under a hard **$30/month** budget. The user runs `terraform plan`/`apply`/`destroy`  wrapped in the 1Password CLI (`op run -- terraform apply`).
+The range is provisioned with **Terraform** on **AWS** with local terraform state. Secrets are handled with **1Password** (source of truth) and **SOPS** (encrypted-in-repo files). Entrypoint into the lab via **Tailscale**. The lab is **ephemeral by design** and runs under a hard **$30/month** budget.
+
+**The user runs `terraform plan`/`apply`/`destroy` manually**, wrapped in the 1Password
+CLI (`op run -- terraform apply`). Claude runs offline checks only — `validate`, `fmt`,
+`tflint`, `infracost breakdown` — and `_hack/scripts/guard-mutations.sh` blocks the rest
+mechanically. This stays in CLAUDE.md because `terraform.md` is path-scoped and is not
+in context until an `_infra/` file is opened.
 
 ## Start here
 
 - **`_docs/README.md`** — documentation index / start-here.
 - **`_docs/decisions/0010-cloud-native-pivot.md`** — the pivot and its constraints.
-- **`_docs/decisions/0011-*`** — provider & topology - Implemented in `_infra/terraform/aws/`.
+- **`_docs/decisions/0011-aws-provider-and-range-topology.md`** — provider & topology
+  (Accepted); implemented in `_infra/terraform/aws/`.
 - **`_docs/runbooks/aws-range-deployment.md`** — how to stand the range up, plus its
   [status page](_docs/runbooks/aws-range-deployment-status.md) for what is applied.
 - **`.claude/rules/range-safety.md`** — non-negotiable isolation. **Read
@@ -30,14 +37,13 @@ The range is provisioned with **Terraform** on **AWS** with local terraform stat
 ├── .claude
 │   ├── agents
 │   ├── commands
+│   ├── output-styles
 │   ├── rules
 │   └── skills
 │       ├── active-directory-attacks
 │       ├── aws-cost-operations
 │       ├── commit
 │       ├── commit-push
-│       ├── debuzz
-│       ├── documentation
 │       ├── malware-analyst
 │       └── threat-modeling-expert
 ├── _docs
@@ -61,21 +67,15 @@ The range is provisioned with **Terraform** on **AWS** with local terraform stat
 
 ## Business rules — `.claude/rules/`
 
-Read the one(s) relevant to your change; add new insights there as discovered.
+Add new insights to the relevant file as discovered.
 
-- **`range-safety.md`** — isolation requirements (no egress route / no public IP on
-  victim hosts, Tailscale-only entry, IMDSv2 + no instance role, one-way
-  telemetry, state split). **Highest priority for any range change.**
-- **`cost-guardrails.md`** — the $30 ceiling; prohibited/rationed resources; ephemeral
-  default; mandatory `infracost` gate; budget alarms.
-- **`terraform.md`** — offline-only for Claude, fetch live provider docs (Terraform
-  MCP), local state, pinned versions, no `remote-exec`, defaults over hardcoding, SOPS.
-- **`secrets.md`** — 1Password-first, SOPS handling, local-state-is-plaintext.
-- **`documentation.md`** — Markdown, Diátaxis, per-module READMEs, Mermaid, ADR format.
-- **`cloud-inventory.md`** — providers, budget envelope, tooling, what stays local.
-- **`skills-and-plugins.md`** — keep context lean; how to reach more skills on demand.
-- **`code.md`** — diagnose-before-fixing discipline; Read before Edit.
-- **`git-ssh-agent.md`** — 1Password SSH signing; don't retry signing failures.
+**Path-scoped** — these load only once a matching file is opened, so the gist lives
+here too:
+
+- **`terraform.md`** (`_infra/**`) — offline-only for Claude, fetch live provider docs
+  (Terraform MCP), local state, pinned versions, no `remote-exec`, SOPS.
+- **`documentation.md`** (`_docs/**`, `**/README.md`) — Markdown, Diátaxis, per-module
+  READMEs, Mermaid, ADR house format.
 
 ## Key commands — `.claude/commands/`
 
