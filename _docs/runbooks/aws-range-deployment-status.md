@@ -34,9 +34,11 @@ Hard gates, in order. Each must pass before the next phase.
 | 2 | Victim route table has no `0.0.0.0/0` route | 1 | ☑ 2026-09-26 — victim RT is local-only, both victim subnets associated; IGW route exists only on the ops RT; main RT locked and unassociated |
 | 3 | SIEM volume `available` | 1 | ☑ 2026-09-26 |
 | 4 | **Invariant 10 DNS tests**, see below | 1→2 | ☐ |
-| 5 | Router advertising `10.40.10.0/24`, shell on all three ops hosts | 2 | ☐ |
-| 6 | Collector bootstrap resolved the SIEM volume | 2 | ☐ |
-| 7 | Both forests up, trust bidirectional, agents `Active` | 3 | ☐ |
+| 5 | Kali AMI resolves **and** the Marketplace subscription is accepted — `describe-images` alone can pass while `RunInstances` fails `OptInRequired` | 1→2 | ☐ |
+| 6 | Advertised route `10.40.10.0/24` **approved** in the Tailscale admin console — a route advertised but unapproved leaves a healthy-looking router with nothing behind it | 2 | ☐ |
+| 7 | Router in `tailscale status`, shell on all three ops hosts | 2 | ☐ |
+| 8 | Collector bootstrap resolved the SIEM volume, Wazuh stack up (arm64 fallback: switch to `t3.medium`, +$0.008/hr) | 2 | ☐ |
+| 9 | Both forests up, trust bidirectional, agents `Active` | 3 | ☐ |
 
 ### Gate 4 — invariant 10 (VPC DNS off)
 

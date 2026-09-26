@@ -83,6 +83,18 @@ Check `systemctl status wazuh-indexer wazuh-manager wazuh-dashboard` and
 `/var/log/collector-bootstrap.log`. Reinstalling over an existing index is the
 known-fragile path.
 
+**Wazuh won't install at all on the collector (arm64)**: don't debug ARM packaging —
+switch the collector to x86 and move on. `wazuh-install.sh -a -i` is best-tested on
+x86_64, and this box is already below Wazuh's documented 4 vCPU / 8 GiB floor (finding
+C-1), so an aarch64 packaging failure is not worth an evening. Set
+`collector_instance_type = "t3.medium"` and give the collector an x86 Ubuntu AMI — the
+`ubuntu_arm` data source pins `architecture = ["arm64"]`, so it needs an x86 sibling, not
+just a different name filter. **Cost of the switch: $0.008/hr** ($0.0336 → $0.0416),
+about $0.06 per 8-hour session. The router stays `t4g.micro`; Tailscale ships first-class
+arm64. Nothing scenario-facing is ARM — attacker and all victims are x86_64, and the
+collector's architecture doesn't affect its mirror, which serves a Windows `.msi` and an
+`amd64` `.deb` either way.
+
 **Windows agents never enroll**: victims are air-gapped and can't fetch the installer;
 the install fails soft. Enable the package mirror in both Phase 1 and Phase 2, then
 relaunch the victims. Verify from a victim: `curl http://<collector_ip>:8080/`.

@@ -249,6 +249,29 @@ Leave this root applied between sessions.
 
 Tailscale subnet router, attacker box (SCRT), and collector (Wazuh). Requires Phase 1.
 
+### Pre-flight — the Kali AMI actually resolves
+
+Do this **before** `apply`. The attacker box is the one host from AWS Marketplace, and the
+two ways it fails are different problems with different fixes:
+
+```bash
+op run -- aws ec2 describe-images --owners aws-marketplace \
+  --filters 'Name=name,Values=kali-last-snapshot-amd64-*' 'Name=architecture,Values=x86_64' \
+  --query 'reverse(sort_by(Images,&CreationDate))[:5].{name:Name,id:ImageId,date:CreationDate,alias:ImageOwnerAlias}' \
+  --output table
+```
+
+- **Empty output** — the `kali_ami_owner` / `kali_ami_name` filter is wrong, and `apply`
+  will fail at plan time with "no AMI found". Fix the variables, not the apply.
+- **Rows returned** — the top one is what Terraform picks (`most_recent = true` in
+  `data.tf`). Check it is a single Kali product and not several variants sharing the name
+  prefix; if it is, tighten `kali_ami_name`.
+- **Rows returned but `RunInstances` fails `OptInRequired`** — a Marketplace AMI is
+  *visible* before you subscribe, so this check passing does **not** prove the AMI is
+  launchable. Confirm the subscription under "Manage subscriptions" in the AWS Marketplace
+  console. This is the documented per-account click-ops step (ADR-0011 §6) and it is easy
+  to believe you have done it because the describe call looks healthy.
+
 ```bash
 cd _infra/terraform/aws/ops-tier
 op run -- terraform init
@@ -265,6 +288,26 @@ Only the public half is passed; the private key stays in 1Password.
 
 Add `TF_VAR_enable_agent_package_mirror=true` if you enabled the mirror in Phase 1.
 
+### Approve the advertised route
+
+**Nothing routes until you do this, and the router looks healthy either way.** You do not
+set the route — `scripts/router.cloud-init.yaml.tftpl` runs
+`tailscale up --advertise-routes=10.40.10.0/24` on first boot — but an advertised route is
+**inert until approved**:
+
+> Tailscale admin console → **Machines** → `range-router` → **Edit route settings** →
+> approve `10.40.10.0/24`.
+
+The symptom of skipping it is the router present in `tailscale status` with nothing behind
+it reachable. To remove the manual step permanently, tag the auth key and add an
+`autoApprovers` entry for that prefix in the tailnet ACL.
+
+It advertises the **ops CIDR only, never a victim CIDR** (ADR-0011 §4a). That is
+deliberate: the tailnet — and therefore your workstation, 1Password and the age key — has
+no route into a victim net. Reaching a victim is always Tailscale → attacker box → pivot.
+If you are tempted to advertise a victim CIDR to "make something reachable", re-read
+[`range-safety.md`](../../.claude/rules/range-safety.md) first.
+
 ### Verify
 
 ```bash
@@ -274,9 +317,36 @@ tailscale status | grep range-router  # advertising 10.40.10.0/24
 
 | Host | Check |
 | --- | --- |
-| Router | Appears in `tailscale status`; `10.40.10.0/24` reachable. Also `tailscale ssh range-router`. First boot needs a minute for `tailscale up` (`/var/log/cloud-init-output.log`). |
+| Router | Appears in `tailscale status` **and** `10.40.10.0/24` is approved and reachable — check both; the first without the second is the usual failure. Also `tailscale ssh range-router`. First boot needs a minute for `tailscale up` (`/var/log/cloud-init-output.log`). |
 | Attacker | `ssh kali@<attacker_private_ip>`. First boot builds SCRT + i3 — **allow several minutes**, watch `/var/log/attacker-bootstrap.log`. Then RDP `:3389` for the desktop. |
-| Collector | `ssh ubuntu@<collector_private_ip>`; dashboard at `https://<collector_private_ip>`. `/var/log/collector-bootstrap.log` should open with `SIEM volume vol-… resolved to /dev/…`. |
+| Collector | `ssh ubuntu@<collector_private_ip>`; dashboard at `https://<collector_private_ip>`. `/var/log/collector-bootstrap.log` should open with `SIEM volume vol-… resolved to /dev/…`. If the Wazuh install itself fails, see the arm64 fallback below. |
+
+#### If the Wazuh install fails on arm64 — switch the collector to x86
+
+The collector is the only ARM host running third-party server software, and it is the one
+place ARM could plausibly cost more than it saves. `wazuh-install.sh -a -i` (the all-in-one
+installer) is what runs on it. Wazuh does publish arm64 packages, but the all-in-one path is
+best-tested on x86_64, and this box is already **below Wazuh's documented 4 vCPU / 8 GiB
+floor** (review finding C-1). If the indexer or dashboard fails to install or OOMs, do not
+debug ARM packaging — switch architecture:
+
+```hcl
+# ops-tier/terraform.tfvars
+collector_instance_type = "t3.medium"   # x86_64, was t4g.medium
+```
+
+and point the collector at an x86 Ubuntu AMI (the `ubuntu_arm` data source in `data.tf`
+pins `architecture = ["arm64"]`, so it needs an x86 sibling, not just a new name filter).
+
+**The cost of doing this is $0.008/hr** — `t4g.medium` $0.0336 vs `t3.medium` $0.0416 — so
+roughly $0.06 on an 8-hour session and well under $1/month at this range's duty cycle. ARM
+here is cost-guardrails rule 3 applied where it was free, not a budget-load-bearing choice;
+spend the $0.008 rather than an evening.
+
+The router stays on `t4g.micro` regardless — it runs only the Tailscale client, which ships
+first-class arm64 builds. And nothing scenario-facing is ARM in the first place: the
+attacker box and every victim host are x86_64, and the collector's own architecture does
+not affect what its mirror serves (it fetches the Windows `.msi` and an `amd64` `.deb`).
 
 ---
 
