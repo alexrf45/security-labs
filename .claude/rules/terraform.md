@@ -1,8 +1,16 @@
-## Terraform Business Rules
+---
+paths:
+  - "_infra/**/*.tf"
+  - "_infra/**/*.tfvars"
+  - "_infra/**/*.tfvars.enc"
+  - "_infra/**/*.hcl"
+  - ".tflint.hcl"
+---
+# Terraform Business Rules
 
 The range is provisioned with Terraform. These rules govern how it is written and run.
 
-### How it runs
+## How it runs
 
 - **The user runs `plan`/`apply`/`destroy` manually, wrapped in the 1Password CLI**
   (`op run -- terraform apply`). **Claude never runs apply/destroy/import/state
@@ -12,7 +20,7 @@ The range is provisioned with Terraform. These rules govern how it is written an
 - Bare `terraform`/`packer` under the `op` plugin fail with `interactive IO not
   available` — expected. Use `validate`/`fmt` for offline verification.
 
-### State
+## State
 
 - **Local state everywhere.** Per the user's decision, the cloud range uses **local
   Terraform state** across the board — shared range plumbing *and* scenarios — to
@@ -24,7 +32,7 @@ The range is provisioned with Terraform. These rules govern how it is written an
 - Local `.tfstate` contains **plaintext secrets** (passwords, tokens rendered into
   resources). It is gitignored and handled per [secrets.md](secrets.md).
 
-### Providers & versions
+## Providers & versions
 
 - **Always fetch live, current provider docs before writing config** — use the
   HashiCorp Terraform MCP tools (`get_latest_provider_version`,
@@ -35,7 +43,7 @@ The range is provisioned with Terraform. These rules govern how it is written an
 - **Do not use the `remote-exec` provisioner.** Prefer cloud-init / user-data /
   image-baked config over in-band provisioners.
 
-### Cost gate (see [cost-guardrails.md](cost-guardrails.md))
+## Cost gate (see [cost-guardrails.md](cost-guardrails.md))
 
 - Before proposing any change that adds or resizes billable resources, run
   `infracost breakdown` and quote the monthly delta and new total against the **$30/mo
@@ -50,7 +58,7 @@ The range is provisioned with Terraform. These rules govern how it is written an
   with `--usage-file infracost-usage.yml`. A bare infracost total on a Windows scenario
   is a floor, not an estimate.
 
-### Style
+## Style
 
 - **Prefer default values over hardcoding.** Only hardcode a value when it is a
   sensitive lab-infra constant that must not vary. Expose the rest as variables with
@@ -61,7 +69,7 @@ The range is provisioned with Terraform. These rules govern how it is written an
 - Every module and scenario root ships a README ([documentation.md](documentation.md)).
 - Run `/lint` (fmt + validate + tflint) before handing work back.
 
-### Provider/topology decision
+## Provider/topology decision
 
 Decided in **ADR-0011** (Accepted): **AWS-only**, `us-east-1`, single-AZ, ephemeral by
 default, three roots split by blast radius. Windows-on-cloud drove the decision and is

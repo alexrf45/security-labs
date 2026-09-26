@@ -41,6 +41,8 @@ check block "after cd in an && chain"     'cd _infra/terraform/aws && terraform 
 check block "chained after a read cmd"    'terraform validate; terraform apply'
 check block "tofu destroy"                'tofu destroy'
 check block "state surgery"               'terraform state rm aws_vpc.range'
+check block "state surgery via -chdir"    'terraform -chdir=_infra/terraform/aws/ops-tier state rm aws_eip.router'
+check block "state push via -chdir"       'op run -- terraform -chdir=x state push new.tfstate'
 check block "packer build"                'packer build image.pkr.hcl'
 check block "aws terminate"               'aws ec2 terminate-instances --instance-ids i-1'
 check block "aws create-tags"             'aws ec2 create-tags --resources i-1 --tags k=v'
@@ -58,6 +60,10 @@ check allow "aws describe"                'aws ec2 describe-instances --filters 
 check allow "aws get"                     'aws ec2 get-ebs-encryption-by-default'
 check allow "tflint"                      'tflint --config .tflint.hcl'
 check allow "infracost"                   'infracost breakdown --path .'
+# The widened state-surgery pattern must not swallow the read-only state subcommands
+# /lab-status depends on.
+check allow "state list via -chdir"       'terraform -chdir=_infra/terraform/aws/ops-tier state list'
+check allow "state show"                  'terraform state show aws_vpc.range'
 # The verb appears only inside a --filters VALUE, never in the operation position.
 check allow "mutating word in a filter"   'aws ec2 describe-instances --filters Name=tag:Name,Values=create-foo'
 check allow "mutating word in a query"    'aws ec2 describe-volumes --query Volumes[?Tags[?Value==`delete-me`]]'

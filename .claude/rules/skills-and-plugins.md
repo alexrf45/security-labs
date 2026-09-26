@@ -1,4 +1,4 @@
-## Skills & Plugins — keeping context lean
+# Skills & Plugins — keeping context lean
 
 The `agentic-awesome-skills` marketplace holds ~1,900 skills. Enabling the **monolith**
 plugin injects every skill's name+description into **every** prompt (~1,900 entries) —
@@ -6,7 +6,7 @@ a large, permanent context tax. Skills only lazy-load their *body* on invoke; th
 name+description list is always present while the plugin is enabled. So the lever for
 "as needed" is **enabling narrow plugins, not lazy loading.**
 
-### How this repo is configured (`.claude/settings.json`)
+## How this repo is configured (`.claude/settings.json`)
 
 - The monolith `agentic-awesome-skills@agentic-awesome-skills` is set **`false`**
   (project override; it is also disabled globally in `~/.claude/settings.json`).
@@ -20,7 +20,7 @@ name+description list is always present while the plugin is enabled. So the leve
   `active-directory-attacks`, `malware-analyst`, `threat-modeling-expert`,
   `aws-cost-operations`.
 
-### Using more skills on demand (zero standing cost)
+## Using more skills on demand (zero standing cost)
 
 When a session needs a skill outside the enabled set (e.g. `metasploit-framework`,
 `red-team-tactics`, `wireshark-analysis`, `memory-forensics`, `aws-security-audit`):
@@ -31,7 +31,7 @@ When a session needs a skill outside the enabled set (e.g. `metasploit-framework
   `.claude/skills/` (copy from
   `~/.claude/plugins/marketplaces/agentic-awesome-skills/skills/<id>/`) and note it here.
 
-### Rule
+## Rule
 
 Do **not** re-enable the monolith by default or add broad bundles casually — each
 enabled plugin is a standing context cost. Prefer vendoring a specific skill or a

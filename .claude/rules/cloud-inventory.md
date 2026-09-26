@@ -1,14 +1,14 @@
-## Cloud Inventory & Operating Environment
+# Cloud Inventory & Operating Environment
 
 Replaces the old on-prem `lab_architecture.md` (Proxmox/UniFi/TrueNAS hardware —
 archived). This records the cloud-native environment the range now targets.
 
-### Budget envelope
+## Budget envelope
 
 - **Hard ceiling: $30/month, all-in, across all providers.** See
   [cost-guardrails.md](cost-guardrails.md). Every design fits under this or it doesn't ship.
 
-### Provider — AWS only (decided in ADR-0011, Accepted)
+## Provider — AWS only (decided in ADR-0011, Accepted)
 
 **AWS is the sole provider** ([ADR-0011](../../_docs/decisions/0011-aws-provider-and-range-topology.md)):
 `us-east-1`, single-AZ, ephemeral by default, **zero always-on compute**. Standing cost
@@ -27,7 +27,7 @@ is storage-only (≈ $2.70/mo). Everything else is per-session and destroyed at 
   advantage and a third credential path for no capability gain.
 - **Windows** is solved via license-included AWS AMIs + `user_data` — see ADR-0011 §6.
 
-### Entry & connectivity
+## Entry & connectivity
 
 - **Tailscale is the mandated entrypoint** (not OpenVPN). A subnet router on the ops
   tier is the single human entry path; it doubles as controlled egress, replacing a
@@ -36,7 +36,7 @@ is storage-only (≈ $2.70/mo). Everything else is per-session and destroyed at 
   victims via the ops tier. A local **Nix** workstation is also used as an attacker
   environment (`_hack/nix/`).
 
-### Secrets & tooling
+## Secrets & tooling
 
 - **1Password** is the secrets source of truth ([secrets.md](secrets.md)); SOPS for
   encrypted-in-repo files.
@@ -44,7 +44,7 @@ is storage-only (≈ $2.70/mo). Everything else is per-session and destroyed at 
   `tailscale`, `op`, `gh`, `docker`, `jq`, `yamllint`, `direnv`. Absent and not needed
   (AWS-only, Packer deferred — ADR-0011): `packer`, `hcloud`, `az`, `gcloud`.
 
-### What stays local
+## What stays local
 
 - The Nix attacker workstation, the age private key, and 1Password desktop/CLI live on
   the user's local machine — never provisioned into or reachable from a victim net

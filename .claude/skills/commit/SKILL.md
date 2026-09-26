@@ -1,3 +1,8 @@
+---
+name: commit
+description: Stage changes, write a conventional commit message from the diff, and commit with 1Password SSH signing. Use when the user asks to commit work in this repo.
+---
+
 # Commit Skill
 
 Stage relevant changes, write a conventional commit message based on the diff, and commit.

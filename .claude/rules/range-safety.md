@@ -1,4 +1,4 @@
-## Cloud Range Safety — Isolation Invariants
+# Cloud Range Safety — Isolation Invariants
 
 The cloud security range runs malware samples, payloads, and vulnerable hosts. These
 invariants are the cloud-native successors to the old Proxmox air-gap (see the

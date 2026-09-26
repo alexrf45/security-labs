@@ -1,3 +1,8 @@
+---
+name: commit-push
+description: Stage, write a conventional commit message, commit with 1Password SSH signing, and push. Use when the user asks to commit and push.
+---
+
 # Commit and Push
 
 Stage changes, write a conventional commit message based on the diff, commit with
@@ -10,5 +15,3 @@ Rules:
   user** so they can authenticate manually — do not retry
   (`.claude/rules/git-ssh-agent.md`).
 - Only commit/push when the user asks. If on `main`, branch first.
-- No post-push reconcile step (the old Flux/k8s `flux reconcile` step is retired —
-  this is an IaC repo the user applies manually via `op run -- terraform apply`).

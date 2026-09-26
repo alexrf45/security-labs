@@ -72,7 +72,12 @@ while IFS= read -r seg; do
     terraform*|tofu*)
       printf '%s' "$s" | grep -qiE '^(terraform|tofu)([[:space:]].*)?[[:space:]](apply|destroy|import|taint|untaint|force-unlock)([[:space:]]|$)' \
         && block "terraform/tofu state mutation ($s)"
-      printf '%s' "$s" | grep -qiE '^(terraform|tofu)[[:space:]]+state[[:space:]]+(rm|mv|push|replace-provider)([[:space:]]|$)' \
+      # Global flags must be tolerated here exactly as they are for apply/destroy above.
+      # This pattern used to anchor `state` directly to the binary, so
+      # `terraform -chdir=<root> state rm <addr>` — the *natural* way to reach a
+      # specific root, and the form /lab-status uses for its read-only state list —
+      # sailed straight through the guard.
+      printf '%s' "$s" | grep -qiE '^(terraform|tofu)([[:space:]].*)?[[:space:]]state[[:space:]]+(rm|mv|push|replace-provider)([[:space:]]|$)' \
         && block "terraform/tofu state surgery ($s)"
       ;;
     packer*)

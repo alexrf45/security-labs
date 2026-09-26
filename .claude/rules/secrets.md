@@ -1,10 +1,10 @@
-## Secrets Management
+# Secrets Management
 
 Secrets for the range are managed with **1Password** (primary) and **SOPS** (for
 files that must live encrypted in the repo). Integrate 1Password as deeply as
 practical — it is the source of truth.
 
-### 1Password first
+## 1Password first
 
 - Reference secrets by `op://<vault>/<item>/<field>`, resolved at runtime with
   `op run -- ...` or `op read`. Prefer this over materializing secrets to disk.
@@ -14,7 +14,7 @@ practical — it is the source of truth.
 - Cloud provider keys, Tailscale auth keys, and lab passwords live in 1Password.
   When discussing them, reference the **item name only**, never the value.
 
-### SOPS (encrypted-in-repo files)
+## SOPS (encrypted-in-repo files)
 
 - `terraform.tfvars`, backend config with secrets, and Packer var-files are
   **SOPS-encrypted by the user** before commit. Decrypt → edit → re-encrypt is a
@@ -22,7 +22,7 @@ practical — it is the source of truth.
 - **Never modify, re-encrypt, or create SOPS-encrypted files without explicit user
   confirmation.** The user manages secrets themselves.
 
-### Local Terraform state = plaintext secrets
+## Local Terraform state = plaintext secrets
 
 - The range uses **local `.tfstate`** ([terraform.md](terraform.md)). Local state
   stores secret attribute values in **plaintext**. Therefore:
@@ -30,7 +30,7 @@ practical — it is the source of truth.
   - Do not paste state contents into the conversation, logs, or artifacts.
   - Treat the working copy of state as sensitive at rest.
 
-### Handling rules
+## Handling rules
 
 - **NEVER** pipe live credentials through ad-hoc `jq`/`sed` redaction filters in
   conversation. If a redaction filter is ever needed, test it against fake data first.

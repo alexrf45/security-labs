@@ -1,3 +1,7 @@
+---
+description: The "did I leave something running?" check — live instances, state-bearing roots, tailnet.
+---
+
 The "did I leave something running?" check. Read-only. Its job is to catch idle
 resources burning the $30/mo budget and to show what's live.
 

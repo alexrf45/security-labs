@@ -1,3 +1,7 @@
+---
+description: Lint the Terraform under _infra/ — fmt, validate and tflint. Read-only.
+---
+
 Lint the Infrastructure as Code: `terraform fmt`/`validate` + `tflint` across `_infra/`.
 
 Read-only — never runs plan/apply or touches state. Uses the raw terraform binary

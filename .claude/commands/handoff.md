@@ -1,3 +1,8 @@
+---
+description: Compact this session into a session-handoff memory file so a fresh session can pick up.
+argument-hint: [focus for the next session]
+---
+
 Compact the current conversation into a handoff document so a fresh session can pick up
 cleanly. Modeled on the [h0me `handoff` skill](https://github.com/alexrf45/h0me/blob/main/.claude/skills/handoff/SKILL.md),
 adapted to this repo: instead of a throwaway file in the OS temp dir, write the handoff

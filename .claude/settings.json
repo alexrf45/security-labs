@@ -1,9 +1,4 @@
 {
-  "enabledPlugins": {
-    "agentic-awesome-skills@agentic-awesome-skills": false,
-    "agentic-bundle-security-engineer@agentic-awesome-skills": true,
-    "agentic-bundle-aas-observability-ir@agentic-awesome-skills": true
-  },
   "permissions": {
     "allow": [
       "Bash(terraform validate)",
@@ -11,6 +6,9 @@
       "Bash(terraform output:*)",
       "Bash(terraform providers:*)",
       "Bash(terraform version)",
+      "Bash(terraform state list:*)",
+      "Bash(terraform state show:*)",
+      "Bash(terraform -chdir=:*)",
       "Bash(tflint:*)",
       "Bash(infracost breakdown:*)",
       "Bash(infracost output:*)",
@@ -36,8 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/_hack/scripts/guard-mutations.sh",
-            "args": []
+            "command": "${CLAUDE_PROJECT_DIR}/_hack/scripts/guard-mutations.sh"
           }
         ]
       }
@@ -53,5 +50,11 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "agentic-awesome-skills@agentic-awesome-skills": false,
+    "agentic-bundle-security-engineer@agentic-awesome-skills": true,
+    "agentic-bundle-aas-observability-ir@agentic-awesome-skills": true,
+    "claude-code-setup@claude-plugins-official": true
   }
 }

@@ -1,10 +1,16 @@
-## Documentation
+---
+paths:
+  - "_docs/**/*.md"
+  - "**/README.md"
+  - "CLAUDE.md"
+---
+# Documentation
 
 Documentation is a first-class deliverable for this repo. The intent is to **publish
 this project and host a documentation site** in the future, so docs are written to
 that standard from the start. All documentation is **Markdown**.
 
-### Structure — Diátaxis
+## Structure — Diátaxis
 
 Organize docs by the four Diátaxis modes so the future site maps cleanly:
 
@@ -18,7 +24,7 @@ Organize docs by the four Diátaxis modes so the future site maps cleanly:
 `_docs/` holds `decisions/` (ADRs), `runbooks/` (how-to), `reference/`, and
 `explanation/` as the range grows. `_docs/README.md` is the start-here index.
 
-### Conventions
+## Conventions
 
 - **Markdown only.** No proprietary formats.
 - Every Terraform **module and scenario root** ships a `README.md` documenting
@@ -34,12 +40,12 @@ Organize docs by the four Diátaxis modes so the future site maps cleanly:
   acronym on first use; keep real secrets and internal IPs out of public-tier docs
   (internal runbooks may use real values but say so at the top).
 
-### YAML in docs/config
+## YAML in docs/config
 
 - 2-space indentation; document-start `---` optional; multiple docs per file allowed.
 - Cloud-init / user-data YAML is linted by the `PostToolUse` yamllint hook on save.
 
-### Site
+## Site
 
 The future documentation site is a **build step over this Markdown** (generator TBD —
 the dead `lotusdocs`/Hugo and MkDocs attempts were removed). Structure the Markdown so

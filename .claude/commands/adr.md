@@ -1,3 +1,8 @@
+---
+description: Scaffold the next ADR in the house format under _docs/decisions/.
+argument-hint: [adr title]
+---
+
 Scaffold the next Architecture Decision Record in the house format.
 
 ## Steps
