@@ -5,7 +5,7 @@
 A **cloud-native security research lab** (cyber range) built as reproducible
 Infrastructure as Code. It exists to practice offensive **and** defensive security,
 develop bespoke tooling/payloads/detections for Linux and Windows hosts, and test
-CVEs — in cloud network segments isolated so that detonating malware/payloads cannot
+CVEs — in cloud network segments isolated so that malware/payloads under test cannot
 reach the user's accounts, other segments, or the internet unfiltered.
 
 The range is provisioned with **Terraform** (cloud-agnostic; AWS/Hetzner primary,
@@ -14,9 +14,10 @@ Azure/GCP open). Secrets are handled with **1Password** (source of truth) and **
 design** and runs under a hard **$30/month** budget.
 
 > **History:** this repo was previously a GitOps Kubernetes home lab (Talos/Flux) and
-> then a **Proxmox** security range (ADR-0009) — built but never deployed. It has
-> pivoted to cloud-native (**ADR-0010**, 2026-09-24). The Proxmox `_infra/` code is
-> still present but **must be rebuilt for cloud** — that work has not started.
+> then a **Proxmox** security range (ADR-0009), built but never deployed. It pivoted to
+> cloud-native (**ADR-0010**, 2026-09-24), and the AWS range is now **built but not yet
+> deployed** (**ADR-0011**, Accepted). The Proxmox-era Terraform and Packer code is gone
+> from `_infra/` and archived under `_docs/archive/proxmox/`.
 
 ## Lab goals & constraints (from ADR-0010)
 
@@ -28,14 +29,17 @@ design** and runs under a hard **$30/month** budget.
 6. **Offensive + defensive** coverage: attacker box + defensive/SIEM side.
 
 Plus: **cloud-agnostic** by default; **reproducible** (no click-ops for scenarios);
-**structural isolation** (detonation segments have no egress route and no public IP);
+**structural isolation** (victim segments have no egress route and no public IP);
 **in-depth Markdown docs** aimed at a future public documentation site.
 
 ## Start here
 
 - **`_docs/README.md`** — documentation index / start-here.
 - **`_docs/decisions/0010-cloud-native-pivot.md`** — the pivot and its constraints.
-- **`_docs/decisions/0011-*`** — provider & topology (**pending — the next decision**).
+- **`_docs/decisions/0011-*`** — provider & topology (**Accepted**): AWS-only, ephemeral,
+  three roots. Implemented in `_infra/terraform/aws/`.
+- **`_docs/runbooks/aws-range-deployment.md`** — how to stand the range up, plus its
+  [status page](_docs/runbooks/aws-range-deployment-status.md) for what is applied.
 - **`.claude/rules/range-safety.md`** — non-negotiable isolation invariants. **Read
   before any change to range networking, the scenario module, or a scenario.**
 - **`.claude/rules/cost-guardrails.md`** — the $30 ceiling and what it forbids.
@@ -44,8 +48,7 @@ Plus: **cloud-agnostic** by default; **reproducible** (no click-ops for scenario
 
 | Directory | Purpose |
 | --- | --- |
-| `_infra/terraform/` | Terraform modules + roots. **Currently Proxmox-era — to be rebuilt for cloud.** |
-| `_infra/packer/` | Golden-image builds. **Proxmox-era — cloud image strategy is TBD (ADR-0011).** |
+| `_infra/terraform/aws/` | The range: three roots split by blast radius (`range-network`, `ops-tier`, `scenarios/multi-forest`). The only infra code in the repo. |
 | `_docs/` | `decisions/` (ADRs), `runbooks/` (how-to), `reviews/` (posture reviews), `reference/`, `archive/proxmox/` (historical). |
 | `_hack/` | One-off scripts & the local Nix attacker env. `scripts/guard-mutations.sh` backs the PreToolUse safety hook. |
 | `.claude/rules/` | Business rules (below). |
@@ -73,7 +76,7 @@ Plus: **cloud-agnostic** by default; **reproducible** (no click-ops for scenario
 Read the one(s) relevant to your change; add new insights there as discovered.
 
 - **`range-safety.md`** — isolation invariants (no egress route / no public IP on
-  detonation hosts, Tailscale-only entry, IMDSv2 + no instance role, one-way
+  victim hosts, Tailscale-only entry, IMDSv2 + no instance role, one-way
   telemetry, state split). **Highest priority for any range change.**
 - **`cost-guardrails.md`** — the $30 ceiling; prohibited/rationed resources; ephemeral
   default; mandatory `infracost` gate; budget alarms.

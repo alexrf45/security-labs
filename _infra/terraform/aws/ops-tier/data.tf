@@ -72,6 +72,13 @@ data "aws_ebs_volume" "siem" {
     name   = "tag:Project"
     values = [var.project]
   }
+  # Exclude creating/deleting/error volumes. `in-use` has to stay: on a re-apply the
+  # volume is still attached to the outgoing collector. most_recent would otherwise
+  # silently pick a failed volume if one ever lingered.
+  filter {
+    name   = "status"
+    values = ["available", "in-use"]
+  }
 }
 
 # --- AMIs ---------------------------------------------------------------------

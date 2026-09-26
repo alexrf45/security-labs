@@ -16,7 +16,7 @@ can't fit, say so and cut scope — do not silently ship something that busts th
    total against $30. Claude runs `infracost breakdown` itself (read-only); it never
    runs `apply`.
 3. **Prefer the cheapest primitive that works.** ARM/Graviton or shared-vCPU over
-   dedicated; spot/interruptible over on-demand for detonation hosts; scheduled stop
+   dedicated; spot/interruptible over on-demand for victim hosts; scheduled stop
    over always-on; snapshot-and-destroy over keep-warm.
 4. **A budget alarm is part of every environment.** A provider-native budget + alarm
    (AWS Budgets; Hetzner has no cost API — use its billing alerts / a cron cost check)
@@ -44,4 +44,5 @@ can't fit, say so and cut scope — do not silently ship something that busts th
 
 See [range-safety.md](range-safety.md) (Tailscale-only entry / no-public-IP invariants
 pull in the same direction as cost) and [terraform.md](terraform.md) (the infracost
-gate). The provider/topology decision is **ADR-0011** (deferred).
+gate). The provider/topology decision is **ADR-0011** (Accepted): AWS-only, with a
+standing cost of ≈ $2.70/mo and everything else per-session.

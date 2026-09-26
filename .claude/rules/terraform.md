@@ -63,5 +63,7 @@ The range is provisioned with Terraform. These rules govern how it is written an
 
 ### Provider/topology decision
 
-Cloud-agnostic by default; the concrete provider(s) and range topology are decided in
-**ADR-0011** (pending). Windows-on-cloud is a known constraint driving that decision.
+Decided in **ADR-0011** (Accepted): **AWS-only**, `us-east-1`, single-AZ, ephemeral by
+default, three roots split by blast radius. Windows-on-cloud drove the decision and is
+solved with license-included AMIs plus `user_data`, so Packer stays deferred. Provider
+pin is `hashicorp/aws 6.66.0`, identical across all three roots.

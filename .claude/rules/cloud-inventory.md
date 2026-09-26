@@ -47,5 +47,5 @@ is storage-only (≈ $2.70/mo). Everything else is per-session and destroyed at 
 ### What stays local
 
 - The Nix attacker workstation, the age private key, and 1Password desktop/CLI live on
-  the user's local machine — never provisioned into or reachable from a detonation net
+  the user's local machine — never provisioned into or reachable from a victim net
   ([range-safety.md](range-safety.md)).

@@ -3,6 +3,11 @@
 - **Status:** **Accepted** 2026-09-24 — implemented in `_infra/terraform/aws/` (three
   roots: `range-network`, `ops-tier`, `scenarios/multi-forest`); Proxmox era archived
   under `_docs/archive/proxmox/`.
+- **Amended:** 2026-09-26 — the collector was right-sized from `t4g.small` to
+  `t4g.medium` (the single-node Wazuh stack OOMs on 2 GiB). Every cost figure in §2 and §7
+  below reflects that; it moved a multi-forest session from $2.72 to **$2.86/8 h** and the
+  monthly envelope from 16 to **15** single-forest sessions. The decision itself is
+  unchanged.
 - **Date:** 2026-09-24
 - **Deciders:** fr3d (with Claude review)
 - **Related:** Implements the deferred provider/topology decision from
@@ -61,6 +66,7 @@ On-demand, `us-east-1`, taken from the EC2 price dataset rather than from recoll
 | --- | --- | --- | --- | --- |
 | t4g.micro (Arm) | 2 / 1 GB | $0.0084 | *not available* | — |
 | t4g.small (Arm) | 2 / 2 GB | $0.0168 | *not available* | — |
+| t4g.medium (Arm) | 2 / 4 GB | $0.0336 | *not available* | — |
 | t3.small | 2 / 2 GB | $0.0208 | $0.0392 | $0.0205 |
 | t3.medium | 2 / 4 GB | $0.0416 | **$0.0600** | $0.0226 |
 | t3.large | 2 / 8 GB | $0.0832 | $0.1108 | $0.0359 |
@@ -71,13 +77,13 @@ Two properties of AWS were verified because the topology depends on them:
    against Microsoft KMS on AWS at the *link-local* addresses `169.254.169.250` and
    `169.254.169.251` on TCP 1688. No Internet Gateway, NAT, or VPC endpoint is
    involved. License-included Windows therefore works unmodified inside a structurally
-   air-gapped detonation subnet — which is precisely what Hetzner cannot offer without
+   air-gapped victim subnet — which is precisely what Hetzner cannot offer without
    a manual build.
 2. **AmazonProvidedDNS is a hole in invariant #1.** The VPC resolver (VPC base + 2, and
    `169.254.169.253`) remains reachable from a subnet with no Internet Gateway route,
    it **cannot be filtered by security groups or network ACLs**, and traffic to it is
    **not logged**. It recurses to the public internet on the instance's behalf. A
-   detonation subnet with "no egress route" therefore still has a working, invisible
+   victim subnet with "no egress route" therefore still has a working, invisible
    DNS exfiltration channel. This is not covered by `range-safety.md` as written and
    must be closed structurally by this topology.
 
@@ -133,19 +139,19 @@ storage only**. An Internet Gateway is free; only NAT Gateways are billed.
 | Tailscale subnet router | t4g.micro | 0.0084 |
 | Public IPv4 × 1 (router only) | — | 0.0050 |
 | Attacker (Kali) | t3.medium | 0.0416 |
-| Collector / SIEM | t4g.small | 0.0168 |
+| Collector / SIEM | t4g.medium | 0.0336 |
 | Windows domain controller | t3.medium (Win) | 0.0600 |
 | Windows workstation | t3.medium (Win) | 0.0600 |
 | Ephemeral EBS (158 GB gp3, prorated) | — | 0.0173 |
-| **Total** | | **0.2091/hr** |
+| **Total** | | **0.2259/hr** |
 
-- **Full session (8 h): ≈ $1.67.**
+- **Full session (8 h): ≈ $1.81.**
 - **Lean Linux-only session (router + attacker + 2 × t4g.small, 8 h): ≈ $0.79.**
-- **Multi-forest session (§7): ≈ $2.72/8 h** on-demand, **≈ $2.12** with members on spot.
-- **Budget envelope:** $30 − $2.70 standing = **$27.30** for session hours ≈ **16 full
-  single-forest sessions/month**, or **10 full multi-forest sessions/month**. The
-  planning target is **12 full single-forest (or 8 multi-forest) sessions ≈ $22.80
-  all-in**, leaving ~24% headroom for overruns, egress, and snapshots.
+- **Multi-forest session (§7): ≈ $2.86/8 h** on-demand, **≈ $2.26** with members on spot.
+- **Budget envelope:** $30 − $2.70 standing = **$27.30** for session hours ≈ **15 full
+  single-forest sessions/month**, or **9 full multi-forest sessions/month**. The
+  planning target is **12 full single-forest (or 8 multi-forest) sessions ≈ $24.40
+  all-in**, leaving ~19% headroom for overruns, egress, and snapshots.
 
 **Windows pricing, locked.** The EC2 Windows license fee is charged **per 2-vCPU pair**,
 so for any 2-vCPU `t3` it is a **flat $0.0184/hr** regardless of the Linux base rate.
@@ -187,20 +193,20 @@ run are binding on the implementation:
 never run on spot**, because a spot reclaim mid-scenario tears down the domain (and, in
 §7, the forest trust) and forces a full re-promote. Spot is an opt-in per-scenario
 variable for **stateless member hosts** only. Member workstations on spot at $0.0226 vs
-$0.0600 cut a multi-forest session from $2.72 to ≈ $2.12.
+$0.0600 cut a multi-forest session from $2.86 to ≈ $2.26.
 
 ### 3. Network topology
 
 One VPC, `10.40.0.0/16`, single AZ (`us-east-1a`) to avoid cross-AZ transfer charges.
 The subnet numbering deliberately preserves the ADR-0009 mnemonic — **40 = ops,
-5N = detonation**.
+5N = victim**.
 
 | Subnet | CIDR | Default route | Public IP | Purpose |
 | --- | --- | --- | --- | --- |
 | `ops` | 10.40.10.0/24 | → Internet Gateway | router only | Tailscale subnet router, attacker, collector |
-| `det00` | 10.40.50.0/24 | **none** | **none** | scenario victims |
-| `det01` | 10.40.51.0/24 | **none** | **none** | scenario victims |
-| `detNN` | 10.40.5N.0/24 | **none** | **none** | future scenarios |
+| `victim00` | 10.40.50.0/24 | **none** | **none** | scenario victims |
+| `victim01` | 10.40.51.0/24 | **none** | **none** | scenario victims |
+| `victimNN` | 10.40.5N.0/24 | **none** | **none** | future scenarios |
 
 ```mermaid
 graph TB
@@ -215,9 +221,9 @@ graph TB
         subgraph ops["ops 10.40.10.0/24 — default route to IGW"]
             R["Tailscale subnet router<br/>t4g.micro · public IPv4<br/>advertises 10.40.10.0/24 ONLY"]
             K["Attacker (Kali)<br/>t3.medium · no public IP"]
-            C["Collector / SIEM<br/>t4g.small · persistent EBS"]
+            C["Collector / SIEM<br/>t4g.medium · persistent EBS"]
         end
-        subgraph det["det00 10.40.50.0/24 — NO default route"]
+        subgraph victim["victim00 10.40.50.0/24 — NO default route"]
             D1["Windows DC<br/>IMDSv2 · no instance profile"]
             D2["Windows workstation"]
             D3["Linux victim"]
@@ -228,13 +234,13 @@ graph TB
     TS -.->|"advertised route"| R
     ops --> IGW
     R --- K
-    K ==>|"SG: attacker to det, any"| det
-    det ==>|"SG + NACL: telemetry port to collector only"| C
-    det -.->|"no route — structural"| IGW
+    K ==>|"SG: attacker to victim, any"| victim
+    victim ==>|"SG + NACL: telemetry port to collector only"| C
+    victim -.->|"no route — structural"| IGW
 
     classDef danger fill:#3a1f1f,stroke:#b34747,color:#f2dede
     classDef safe fill:#1f2f22,stroke:#4a8a5c,color:#dff0e4
-    class det,D1,D2,D3 danger
+    class victim,D1,D2,D3 danger
     class ops,R,K,C safe
 ```
 
@@ -244,40 +250,40 @@ These are the new, AWS-specific rulings; they supplement `range-safety.md` rathe
 restate it.
 
 **(a) The subnet router advertises the ops subnet only.** `--advertise-routes` carries
-`10.40.10.0/24` and never a detonation CIDR. The tailnet — and therefore the
-workstation, 1Password, and the age key — has no route to a detonation subnet. The
-attack path is workstation → Tailscale → attacker box → detonation net, exactly as
+`10.40.10.0/24` and never a victim CIDR. The tailnet — and therefore the
+workstation, 1Password, and the age key — has no route to a victim subnet. The
+attack path is workstation → Tailscale → attacker box → victim net, exactly as
 `range-safety.md` §3–4 and `cloud-inventory.md` ("what stays local") require.
 
 **(b) VPC DNS is disabled outright.** Set `enable_dns_support = false` and
 `enable_dns_hostnames = false` on the VPC, plus a custom DHCP option set handing out
 **public resolvers** (e.g. `1.1.1.1`). The effect is that DNS obeys the same structural
 rule as everything else: it works from the ops subnet, which has a route to the
-internet, and is structurally dead in a detonation subnet, which does not. This closes
+internet, and is structurally dead in a victim subnet, which does not. This closes
 the unfilterable, unlogged AmazonProvidedDNS exfiltration channel identified above.
-Scenarios that need DNS *inside* a detonation segment run their own resolver in-segment
+Scenarios that need DNS *inside* a victim segment run their own resolver in-segment
 — which is more realistic anyway, since an AD domain controller *is* the domain's DNS
 server.
 
-**(c) Ops↔detonation separation is rule-based, not structural — and this is an honest
+**(c) Ops↔victim separation is rule-based, not structural — and this is an honest
 degradation from ADR-0009.** Within a single VPC, the implicit `local` route covers the
-entire VPC CIDR, so a detonation host can address the ops subnet at layer 3 no matter
+entire VPC CIDR, so a victim host can address the ops subnet at layer 3 no matter
 what the route table says. The Proxmox design's gateway-less VLAN was structural in
 *both* directions; AWS's is structural only toward the internet. The mitigation is
 defence in depth, and it must be treated as load-bearing rather than belt-and-braces:
 
-1. **Security groups** — detonation SG egress is restricted to the collector's IP on the
-   telemetry port; the collector's SG ingress accepts only that port from the detonation
+1. **Security groups** — victim SG egress is restricted to the collector's IP on the
+   telemetry port; the collector's SG ingress accepts only that port from the victim
    SG. Default egress posture is deny.
-2. **Network ACLs** on the detonation subnet — stateless, subnet-level, denying the ops
+2. **Network ACLs** on the victim subnet — stateless, subnet-level, denying the ops
    CIDR except the collector endpoint and the attacker's return traffic. Because NACLs
    are stateless, ephemeral-port return rules must be written explicitly. The baseline
-   NACL **permits detonation↔detonation traffic** (other `10.40.5N.0/24` ranges): the
+   NACL **permits victim↔victim traffic** (other `10.40.5N.0/24` ranges): the
    same unavoidable VPC `local` route that weakens ops isolation is what lets two
-   detonation subnets host a cross-subnet forest trust (§7) while both stay air-gapped
+   victim subnets host a cross-subnet forest trust (§7) while both stay air-gapped
    from the internet. Inter-forest isolation, where a scenario wants it, is a
    scenario-level SG choice on top of this baseline.
-3. **No instance profile and IMDSv2 with hop limit 1** on every detonation host, so a
+3. **No instance profile and IMDSv2 with hop limit 1** on every victim host, so a
    compromise cannot mint AWS credentials (`range-safety.md` §5).
 
 Rejecting the structural alternative was a cost decision: separate VPCs joined by a
@@ -296,7 +302,7 @@ Three roots, **local state each** per `terraform.md`, split by blast radius:
 | --- | --- | --- | --- |
 | `_infra/terraform/aws/range-network/` | VPC, subnets, route tables, IGW, NACLs, SGs, DHCP option set, AWS Budgets, persistent SIEM EBS volume | long-lived | ~$2.70/mo |
 | `_infra/terraform/aws/ops-tier/` | subnet router, attacker, collector (attaches the persistent volume) | **per session** | hourly |
-| `_infra/terraform/aws/scenarios/<name>/` | victims in one or more detonation subnets (multi-forest uses two, §7) | **per session** | hourly |
+| `_infra/terraform/aws/scenarios/<name>/` | victims in one or more victim subnets (multi-forest uses two, §7) | **per session** | hourly |
 
 **Scenario and ops roots discover shared plumbing through tag-filtered data sources
 (`aws_vpc`, `aws_subnet`, `aws_security_group`), never through
@@ -319,7 +325,7 @@ era.** Stock AMIs plus `user_data` cover every current need:
 
 Two consequences follow. `user_data` reaches Windows through IMDS at `169.254.169.254`,
 a link-local address, so it works in a no-egress subnet. And SSM is **not** available on
-detonation hosts, because reaching it would require interface VPC endpoints at ~$7.20/mo
+victim hosts, because reaching it would require interface VPC endpoints at ~$7.20/mo
 each — out of budget. That is consistent with `terraform.md`'s ban on `remote-exec`:
 configuration is image-baked or user-data, never in-band.
 
@@ -334,13 +340,13 @@ foreign-group and `ExtraSids` privilege paths — are the most demanding AD scen
 range must host. If the topology supports two forests joined by a trust, it supports
 every lesser single-domain scenario. This section validates that it does, within budget.
 
-**Layout.** The scenario consumes **two detonation subnets** already provisioned by
+**Layout.** The scenario consumes **two victim subnets** already provisioned by
 `range-network`, one per forest, and places a DC and a member in each:
 
 | Forest | Domain | Subnet | Hosts |
 | --- | --- | --- | --- |
-| A (root) | `forest-a.lab` | `det00` 10.40.50.0/24 | DC-A (t3.medium Win), WS-A (t3.medium Win) |
-| B (root) | `forest-b.lab` | `det01` 10.40.51.0/24 | DC-B (t3.medium Win), WS-B (t3.medium Win) |
+| A (root) | `forest-a.lab` | `victim00` 10.40.50.0/24 | DC-A (t3.medium Win), WS-A (t3.medium Win) |
+| B (root) | `forest-b.lab` | `victim01` 10.40.51.0/24 | DC-B (t3.medium Win), WS-B (t3.medium Win) |
 
 Two separate forest **roots** (not a parent/child domain tree) joined by a **two-way
 forest trust** is the configuration that exercises `ExtraSids`/SID-history and
@@ -349,27 +355,27 @@ cross-forest Kerberos; it is deliberately chosen over a single forest with two d
 ```mermaid
 graph LR
     K["Attacker (Kali)<br/>ops subnet"]
-    subgraph det00["det00 10.40.50.0/24 — no egress"]
+    subgraph victim00["victim00 10.40.50.0/24 — no egress"]
         DCA["DC-A · forest-a.lab<br/>AD DS + DNS"]
         WSA["WS-A (member)"]
     end
-    subgraph det01["det01 10.40.51.0/24 — no egress"]
+    subgraph victim01["victim01 10.40.51.0/24 — no egress"]
         DCB["DC-B · forest-b.lab<br/>AD DS + DNS"]
         WSB["WS-B (member)"]
     end
     DCA <-->|"two-way forest trust<br/>Kerberos/LDAP/SMB · VPC local route"| DCB
     DCA -.->|"conditional forwarder"| DCB
     DCB -.->|"conditional forwarder"| DCA
-    K ==>|"SG: attacker to both dets"| det00
-    K ==> det01
-    det00 -.->|"telemetry"| COL["Collector"]
-    det01 -.->|"telemetry"| COL
+    K ==>|"SG: attacker to both dets"| victim00
+    K ==> victim01
+    victim00 -.->|"telemetry"| COL["Collector"]
+    victim01 -.->|"telemetry"| COL
 ```
 
 **Why the topology already supports this (no `range-network` change needed):**
 
 - **Inter-forest L3 reachability is free and internet-isolated.** The VPC `local` route
-  spans `10.40.0.0/16`, so `det00` and `det01` reach each other with no route-table
+  spans `10.40.0.0/16`, so `victim00` and `victim01` reach each other with no route-table
   entry, while neither has a default route off the VPC. The trust's Kerberos (88), LDAP
   (389/636), SMB (445), and RPC endpoint-mapper + dynamic range ride entirely on that
   local route. This is the §4(c) baseline-NACL allowance in use.
@@ -384,14 +390,14 @@ graph LR
 
 | Line | On-demand | Members on spot |
 | --- | --- | --- |
-| router + IPv4 + attacker + collector | 0.0718/hr | 0.0718/hr |
+| router + IPv4 + attacker + collector | 0.0886/hr | 0.0886/hr |
 | 2× DC-A/B t3.medium Win (on-demand) | 0.1200/hr | 0.1200/hr |
 | 2× WS-A/B t3.medium Win | 0.1200/hr | 0.0452/hr (spot) |
 | EBS ~258 GB gp3 | 0.0283/hr | 0.0283/hr |
-| **Total** | **0.3401/hr → $2.72/8 h** | **0.2653/hr → $2.12/8 h** |
+| **Total** | **0.3569/hr → $2.86/8 h** | **0.2821/hr → $2.26/8 h** |
 
-At $2.72/session the ceiling allows **~10 multi-forest sessions/month** all-in (spot
-members: ~13). DCs stay on-demand per the §2 spot policy; only the two member
+At $2.86/session the ceiling allows **~9 multi-forest sessions/month** all-in (spot
+members: ~12). DCs stay on-demand per the §2 spot policy; only the two member
 workstations are spot-eligible.
 
 **The reproducibility hard part — trust bootstrap.** Forest promotion and trust creation
@@ -433,10 +439,10 @@ is settled there against real behaviour.
 - **An always-on AWS ops tier** — rejected. t4g.micro + public IPv4 is $9.78/mo standing,
   roughly six sessions of budget, for infrastructure that is only useful while a session
   is running. Tailscale needs no permanent cloud node.
-- **Two VPCs + Transit Gateway** for two-way structural ops↔detonation separation —
+- **Two VPCs + Transit Gateway** for two-way structural ops↔victim separation —
   rejected on cost (~$36/mo, over the ceiling on its own). Replaced by the SG + NACL +
   no-instance-profile defence in depth of §4(c).
-- **VPC interface endpoints for SSM** on detonation hosts — rejected (~$7.20/mo each).
+- **VPC interface endpoints for SSM** on victim hosts — rejected (~$7.20/mo each).
 - **NAT Gateway** for controlled egress — forbidden outright by `cost-guardrails.md`
   (~$32.85/mo) and by `range-safety.md` §1.
 - **Fully ephemeral defensive tier** (no persistent volume) — rejected. $2.40/mo is a
@@ -447,7 +453,7 @@ is settled there against real behaviour.
 
 - **Positive:**
   - **Standing cost falls to ≈ $2.70/mo**, so ~90% of the ceiling is available as
-    session hours — roughly 16 full Windows+Linux sessions per month.
+    session hours — roughly 15 full Windows+Linux sessions per month.
   - Windows is finally reproducible: a license-included AMI plus `user_data`, no manual
     image build anywhere in the pipeline.
   - Every `range-safety.md` invariant becomes a declarative Terraform attribute that
@@ -459,7 +465,7 @@ is settled there against real behaviour.
 
 - **Negative / follow-ups:**
   - **`range-safety.md` needs two new invariants** capturing §4(b) (VPC DNS disabled) and
-    §4(c) (ops↔detonation is SG/NACL-enforced, not structural — treat the NACL as
+    §4(c) (ops↔victim is SG/NACL-enforced, not structural — treat the NACL as
     load-bearing). Until added, the rules file understates the AWS threat model.
   - **`cloud-inventory.md` is now stale**: Hetzner pricing is wrong, Hetzner should be
     recorded as evaluated-and-rejected, and `hcloud` drops off the "install when needed"

@@ -1,6 +1,6 @@
 ## Cloud Range Safety — Isolation Invariants
 
-The cloud security range detonates malware, payloads, and vulnerable hosts. These
+The cloud security range runs malware samples, payloads, and vulnerable hosts. These
 invariants are the cloud-native successors to the old Proxmox air-gap (see the
 archived ADR-0009). They are **non-negotiable**; violating one can let a
 compromised victim reach the internet unfiltered, pivot to your accounts, or leak
@@ -11,14 +11,14 @@ The structural idea carries over unchanged from the hypervisor lab: **a victim h
 no path off its segment.** On-prem that meant a gateway-less VLAN. In cloud it means
 a subnet with **no route to an internet/NAT gateway** and **no public IP**.
 
-1. **Detonation subnets have no egress route.** A detonation subnet's route table
+1. **Victim subnets have no egress route.** A victim subnet's route table
    has **no** default route to an Internet Gateway, NAT Gateway/Instance, or peering.
    The air-gap is *structural* — a victim has no next-hop off its segment. Never add
    a route "to make something reachable"; reach it from a dual-homed ops box instead.
    (This also enforces the cost rule: no NAT gateway, ever — see
    [cost-guardrails.md](cost-guardrails.md).)
 
-2. **No public IP on any detonation host.** No EIP, no auto-assigned public IPv4/IPv6,
+2. **No public IP on any victim host.** No EIP, no auto-assigned public IPv4/IPv6,
    no public DNS. Victims are reachable only from the ops tier.
 
 3. **Entry is via Tailscale only — never a public bastion.** The single point of
@@ -26,12 +26,12 @@ a subnet with **no route to an internet/NAT gateway** and **no public IP**.
    SSH/RDP port is ever open to `0.0.0.0/0`. Security-group ingress on victims is
    restricted to the ops tier's range-side address(es).
 
-4. **Only hardened ops boxes bridge into a detonation net.** The attacker box (Kali)
-   and the collector may sit on the ops tier and reach detonation subnets. Nothing
+4. **Only hardened ops boxes bridge into a victim net.** The attacker box (Kali)
+   and the collector may sit on the ops tier and reach victim subnets. Nothing
    that can reach your cloud control plane or the internet unfiltered is dual-homed
    without the guards below.
 
-5. **No cloud-control-plane reach from detonation hosts.** Detonation instances run
+5. **No cloud-control-plane reach from victim hosts.** Victim instances run
    with **IMDSv2 required** (hop limit 1) and **no instance profile / no attached
    role** — the cloud analogue of "the victim can't reach the hypervisor." A
    compromised victim must not be able to mint cloud credentials from metadata.
@@ -40,9 +40,9 @@ a subnet with **no route to an internet/NAT gateway** and **no public IP**.
    CVE payload), it goes through a *controlled, logged* allow-list on the ops tier,
    never a blanket route. Default posture is deny.
 
-7. **Telemetry is detonation → collector, one-way.** Scenario hosts ship logs to the
+7. **Telemetry is victim → collector, one-way.** Scenario hosts ship logs to the
    collector's **range-side IP**. No ops secrets — 1Password tokens, cloud keys,
-   SOPS age key, Tailscale auth keys, C2 keys — ever transit into a detonation net.
+   SOPS age key, Tailscale auth keys, C2 keys — ever transit into a victim net.
 
 8. **No lab-admin data on scenario hosts.** SIEM index and kept artifacts live on the
    ops/admin tier. Scenario disks are ephemeral and destroyed with the scenario.
@@ -60,23 +60,23 @@ a subnet with **no route to an internet/NAT gateway** and **no public IP**.
     resolvers. AmazonProvidedDNS (VPC base+2, `169.254.169.253`) is reachable from a
     no-egress subnet, **cannot be filtered by SG or NACL, and is not logged** — a live,
     invisible DNS-exfil channel if left on. Disabling it makes DNS obey the structural
-    rule: it works from the routed ops subnet and is dead in detonation subnets.
+    rule: it works from the routed ops subnet and is dead in victim subnets.
     In-segment scenarios run their own resolver (an AD DC is its domain's DNS server).
     Never re-enable VPC DNS to "make something resolve."
 
-11. **Ops↔detonation is rule-based, not structural (AWS) — the NACL is load-bearing.**
-    Within one VPC the implicit `local` route spans the whole CIDR, so a detonation host
+11. **Ops↔victim is rule-based, not structural (AWS) — the NACL is load-bearing.**
+    Within one VPC the implicit `local` route spans the whole CIDR, so a victim host
     can address the ops subnet at L3 regardless of its route table. This is an honest
     degradation from the Proxmox gateway-less VLAN (structural in *both* directions);
     AWS is structural only toward the internet. Two layers, both non-negotiable, both
     treated as primary: **security groups** (stateful — victims reachable only from the
     attacker SG; telemetry one-way to the collector SG; the collector never initiates
-    into detonation) and a **detonation NACL** (stateless — egress to ops limited to
-    telemetry + ephemeral return; det↔det permitted so a cross-subnet forest trust
+    into a victim subnet) and a **victim NACL** (stateless — egress to ops limited to
+    telemetry + ephemeral return; victim↔victim permitted so a cross-subnet forest trust
     works). Do not treat either as belt-and-braces.
 
-**Before every scenario apply, re-check this file** — no egress route on detonation
+**Before every scenario apply, re-check this file** — no egress route on victim
 subnets, no public IP, IMDSv2 + no instance role, Tailscale-only entry, telemetry
-one-way, VPC DNS off, SG+NACL ops↔det separation intact. The topology that implements
+one-way, VPC DNS off, SG+NACL ops↔victim separation intact. The topology that implements
 these invariants is **ADR-0011 (Accepted)**, built in `_infra/terraform/aws/`. Treat any
 design that can't satisfy 1–11 as not ready to apply.

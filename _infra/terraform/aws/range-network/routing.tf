@@ -17,23 +17,23 @@ resource "aws_route_table_association" "ops" {
   route_table_id = aws_route_table.ops.id
 }
 
-# Detonation route table: NO routes beyond the implicit VPC local route. This is
+# Victim route table: NO routes beyond the implicit VPC local route. This is
 # the structural air-gap toward the internet (range-safety.md §1). Never add a
-# route here "to make something reachable" — reach detonation hosts from the ops
+# route here "to make something reachable" — reach victim hosts from the ops
 # attacker box instead.
-resource "aws_route_table" "detonation" {
+resource "aws_route_table" "victim" {
   vpc_id = aws_vpc.range.id
 
   tags = {
-    Name = "${var.project}-det-rt"
+    Name = "${var.project}-victim-rt"
   }
 }
 
-resource "aws_route_table_association" "detonation" {
-  for_each = var.detonation_subnets
+resource "aws_route_table_association" "victim" {
+  for_each = var.victim_subnets
 
-  subnet_id      = aws_subnet.detonation[each.key].id
-  route_table_id = aws_route_table.detonation.id
+  subnet_id      = aws_subnet.victim[each.key].id
+  route_table_id = aws_route_table.victim.id
 }
 
 # Lock the VPC's main route table down to local-only. Any subnet not explicitly

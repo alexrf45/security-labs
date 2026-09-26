@@ -1,5 +1,5 @@
 output "forest_a" {
-  description = "Forest A hosts (det00)."
+  description = "Forest A hosts (victim00)."
   value = {
     domain = var.forest_a_domain
     dc     = { name = "dc-a", private_ip = aws_instance.dc_a.private_ip }
@@ -8,7 +8,7 @@ output "forest_a" {
 }
 
 output "forest_b" {
-  description = "Forest B hosts (det01)."
+  description = "Forest B hosts (victim01)."
   value = {
     domain = var.forest_b_domain
     dc     = { name = "dc-b", private_ip = aws_instance.dc_b.private_ip }

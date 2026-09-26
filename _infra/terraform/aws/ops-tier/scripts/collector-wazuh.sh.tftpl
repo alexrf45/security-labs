@@ -18,27 +18,75 @@ MIRROR="${enable_mirror}"
 MIRROR_PORT="${mirror_port}"
 SERVE_SYSMON="${serve_sysmon}"
 AGENT_PKG="${wazuh_agent_pkg}"
+INDEXER_HEAP="${indexer_heap}"
 SENTINEL="$MOUNT/.wazuh-provisioned"
 
-# --- 1. Mount the persistent SIEM volume -------------------------------------
+# --- 1. Wait for, then mount, the persistent SIEM volume ---------------------
+# aws_volume_attachment is created AFTER this instance, so the device appears
+# anywhere from seconds to minutes into boot. Probing once races the attach and,
+# under `set -e`, aborts the whole script — Wazuh then silently never installs.
+# Nitro instances (t4g) ignore the requested /dev/sdf name and expose EBS as NVMe,
+# but carry the volume ID in the device serial, so resolve by serial first and keep
+# path probing as the non-Nitro fallback.
+VOL_ID="${siem_volume_id}"
+VOL_SERIAL="$(printf '%s' "$VOL_ID" | tr -d '-')" # vol-0abc123 -> vol0abc123
 DEV=""
-for c in ${device} /dev/nvme1n1 /dev/xvdf; do
-  if [ -b "$c" ]; then DEV="$c"; break; fi
+for _ in $(seq 1 60); do # 60 x 5s = 5 minutes
+  while read -r bdev bserial; do
+    if [ "$bserial" = "$VOL_SERIAL" ]; then DEV="/dev/$bdev"; fi
+  done < <(lsblk -dno NAME,SERIAL)
+  if [ -z "$DEV" ]; then
+    for c in ${device} /dev/nvme1n1 /dev/xvdf; do
+      if [ -b "$c" ]; then DEV="$c"; break; fi
+    done
+  fi
+  if [ -n "$DEV" ]; then break; fi
+  sleep 5
 done
-if [ -z "$DEV" ]; then echo "SIEM volume not found; aborting"; exit 1; fi
+if [ -z "$DEV" ]; then
+  echo "SIEM volume $VOL_ID did not attach within 5 minutes; aborting"
+  exit 1
+fi
+echo "SIEM volume $VOL_ID resolved to $DEV"
 if ! blkid "$DEV"; then mkfs.ext4 -L siem "$DEV"; fi
 mkdir -p "$MOUNT"
 grep -q "LABEL=siem" /etc/fstab || echo "LABEL=siem $MOUNT ext4 defaults,nofail 0 2" >> /etc/fstab
 mount -a
 mkdir -p "$MOUNT/wazuh-indexer" "$MOUNT/ossec-etc" "$MOUNT/installers"
 
-# --- 2. Install Wazuh single-node (first run only) ---------------------------
+# --- 2. Swap, as an OOM backstop ---------------------------------------------
+# Wazuh documents the all-in-one stack at 4 vCPU / 8 GiB for 1-25 agents; the default
+# collector is a t4g.medium (2 vCPU / 4 GiB), chosen to stay inside the $30 ceiling. Swap
+# means a memory spike pages instead of getting the indexer OOM-killed. OpenSearch would
+# normally prefer swap disabled for latency, which is the right trade on real hardware and
+# the wrong one here — a slow dashboard beats a dead indexer in a lab.
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+# --- 3. Install Wazuh single-node (first run only) ---------------------------
 if [ ! -f "$SENTINEL" ]; then
   cd /root
   curl -fsSLO "https://packages.wazuh.com/$WZ_VER/wazuh-install.sh"
   # -a = all-in-one (manager + indexer + dashboard); -i skips health checks that
-  # fail on small boxes. The dashboard listens on 443; the manager on 1514/1515.
+  # fail on small boxes — including the 4 vCPU / 8 GiB one this instance does not meet,
+  # which is why the heap is pinned below rather than left to the installer's default.
   bash ./wazuh-install.sh -a -i
+
+  # Pin the indexer JVM heap. Xms and Xmx must be equal (documented) to avoid runtime
+  # heap resizing. Left at the package default this can claim a large share of a 4 GiB
+  # box and starve the manager and dashboard.
+  JVM_OPTS=/etc/wazuh-indexer/jvm.options
+  if [ -f "$JVM_OPTS" ]; then
+    sed -i -E "s/^-Xms.*/-Xms$INDEXER_HEAP/; s/^-Xmx.*/-Xmx$INDEXER_HEAP/" "$JVM_OPTS"
+    grep -qE '^-Xms' "$JVM_OPTS" || echo "-Xms$INDEXER_HEAP" >> "$JVM_OPTS"
+    grep -qE '^-Xmx' "$JVM_OPTS" || echo "-Xmx$INDEXER_HEAP" >> "$JVM_OPTS"
+    echo "indexer heap pinned to $INDEXER_HEAP"
+  fi
 
   # Relocate stateful dirs onto the persistent volume via bind mounts.
   systemctl stop wazuh-dashboard wazuh-manager wazuh-indexer || true
@@ -51,7 +99,7 @@ if [ ! -f "$SENTINEL" ]; then
   touch "$SENTINEL"
 fi
 
-# --- 3. (Re)establish bind mounts, then start services -----------------------
+# --- 4. (Re)establish bind mounts, then start services -----------------------
 # Runs every boot so a fresh collector on an existing volume picks up prior state.
 systemctl stop wazuh-dashboard wazuh-manager wazuh-indexer || true
 for pair in "$MOUNT/wazuh-indexer:/var/lib/wazuh-indexer" "$MOUNT/ossec-etc:/var/ossec/etc"; do
@@ -64,7 +112,7 @@ chown -R wazuh-indexer:wazuh-indexer /var/lib/wazuh-indexer || true
 systemctl daemon-reload
 systemctl enable --now wazuh-indexer wazuh-manager wazuh-dashboard || true
 
-# --- 4. Optional: mirror agent installers for air-gapped victims -------------
+# --- 5. Optional: mirror agent installers for air-gapped victims -------------
 if [ "$MIRROR" = "true" ]; then
   cd "$MOUNT/installers"
   # Windows agent MSI (victims cannot reach the internet to fetch it themselves).
@@ -79,7 +127,7 @@ if [ "$MIRROR" = "true" ]; then
       "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml" \
       -o sysmonconfig.xml || true
   fi
-  # Serve the installer dir over one port (SG/NACL restrict the source to detonation).
+  # Serve the installer dir over one port (SG/NACL restrict the source to victim).
   cat > /etc/systemd/system/agent-mirror.service <<UNIT
 [Unit]
 Description=Wazuh agent installer mirror

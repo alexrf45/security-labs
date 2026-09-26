@@ -41,7 +41,7 @@ constraints that are binding on all subsequent design:
    plus a local Nix attacker env) and a defensive/detection + SIEM side.
 
 The **structural air-gap** principle from ADR-0009 carries over: a victim has no path
-off its segment — realized in cloud as detonation subnets with **no egress route and
+off its segment — realized in cloud as victim subnets with **no egress route and
 no public IP**, entry only via Tailscale, and **IMDSv2 + no instance role** so a
 compromised victim cannot mint cloud credentials. See `.claude/rules/range-safety.md`.
 

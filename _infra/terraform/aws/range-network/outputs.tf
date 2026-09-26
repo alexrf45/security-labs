@@ -11,18 +11,18 @@ output "ops_subnet_id" {
   value       = aws_subnet.ops.id
 }
 
-output "detonation_subnet_ids" {
-  description = "Detonation subnet IDs by name."
-  value       = { for k, s in aws_subnet.detonation : k => s.id }
+output "victim_subnet_ids" {
+  description = "Victim subnet IDs by name."
+  value       = { for k, s in aws_subnet.victim : k => s.id }
 }
 
 output "security_group_ids" {
   description = "Range security group IDs by role."
   value = {
-    router     = aws_security_group.router.id
-    attacker   = aws_security_group.attacker.id
-    collector  = aws_security_group.collector.id
-    detonation = aws_security_group.detonation.id
+    router    = aws_security_group.router.id
+    attacker  = aws_security_group.attacker.id
+    collector = aws_security_group.collector.id
+    victim    = aws_security_group.victim.id
   }
 }
 

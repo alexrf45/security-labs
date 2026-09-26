@@ -5,21 +5,30 @@
 # multiple reboots that forest promotion causes. Every step is guarded to be
 # idempotent: promotion happens once, the conditional forwarder is added once, and
 # (DC-B only) the trust task is registered once.
-# SSM is unavailable in a no-egress detonation subnet (§6), so this is the only
+# SSM is unavailable in a no-egress victim subnet (§6), so this is the only
 # post-boot command channel. Windows KMS activation still works via the link-local
 # 169.254.169.250/.251:1688 endpoints with no internet route (§ Context).
 # ============================================================================
 $ErrorActionPreference = "Stop"
 Start-Transcript -Path "C:\bootstrap-dc.log" -Append
 
-# --- Built-in Administrator password ---------------------------------------
-$admin = [ADSI]"WinNT://./Administrator,user"
-$admin.SetPassword("${domain_admin_password}")
-$admin.SetInfo()
-
 $adds = Get-WindowsFeature -Name AD-Domain-Services
 
 if (-not $adds.Installed) {
+    # --- Built-in Administrator password (pre-promotion boot only) ----------
+    # The local account becomes the DOMAIN Administrator at promotion and keeps this
+    # password. On every LATER boot the local WinNT:// provider no longer addresses
+    # it and SetPassword throws; with $ErrorActionPreference = "Stop" that used to
+    # abort the script before the conditional forwarder and the trust task were
+    # registered. Guarded to the first boot, and non-fatal even there.
+    try {
+        $admin = [ADSI]"WinNT://./Administrator,user"
+        $admin.SetPassword("${domain_admin_password}")
+        $admin.SetInfo()
+    } catch {
+        Write-Output "Could not set the local Administrator password: $_"
+    }
+
     # First boot: promote this host to a new forest root. Reboots on completion,
     # after which <persist> re-runs this script and falls through to the guards below.
     Install-WindowsFeature -Name AD-Domain-Services, DNS -IncludeManagementTools
@@ -39,7 +48,7 @@ Import-Module DnsServer -ErrorAction SilentlyContinue
 
 # Conditional forwarder so this forest can resolve the peer forest without VPC DNS.
 if (-not (Get-DnsServerZone -Name "${peer_domain}" -ErrorAction SilentlyContinue)) {
-    Add-DnsServerConditionalForwarderZone -Name "${peer_domain}" -MasterServers ${peer_dc_ip}
+    Add-DnsServerConditionalForwarderZone -Name "${peer_domain}" -MasterServers "${peer_dc_ip}"
 }
 
 %{ if create_trust ~}

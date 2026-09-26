@@ -3,7 +3,7 @@
 # Attacker box provisioning — reproduces the user's SCRT daily-driver image
 # (github.com/alexrf45/SCRT) on the Kali EC2 host by running SCRT's own build
 # scripts, then adds an i3 desktop (over xrdp) and tmux. The attacker sits on the
-# routed ops subnet, so it has internet to clone/download (unlike detonation hosts).
+# routed ops subnet, so it has internet to clone/download (unlike victim hosts).
 # Reached over Tailscale via the subnet router: SSH, or RDP to i3 on 3389.
 # =============================================================================
 set -uxo pipefail
@@ -12,9 +12,17 @@ exec > >(tee -a /var/log/attacker-bootstrap.log) 2>&1
 SCRT_REPO="${scrt_repo_url}"
 INSTALL_BUGBOUNTY="${install_bugbounty}"
 ENABLE_GUI="${enable_gui}"
-RDP_PASSWORD="${rdp_password}"
 KALI_USER="kali"
 KALI_HOME="/home/$KALI_USER"
+
+# xtrace (set -x above) is deliberate: first-boot debugging depends on it. But xtrace
+# prints every expansion, and BOTH sinks are world-readable 0644 —
+# /var/log/attacker-bootstrap.log (line above) and /var/log/cloud-init-output.log.
+# So the password must never be expanded while tracing is on. Guarded here at the
+# assignment and again at every use below.
+set +x
+RDP_PASSWORD="${rdp_password}"
+set -x
 
 # Kali's default user needs non-interactive sudo for SCRT's apt steps.
 echo "$KALI_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-kali-nopasswd
@@ -103,10 +111,23 @@ I3CFG
   # supplied (from 1Password at apply time); otherwise leave GUI installed and let
   # the operator set it. Access is over Tailscale via the router; 3389 is never
   # exposed publicly (attacker has no public IP; SG ingress is ops-subnet only).
+  # Tracing off for the whole secret-handling region: even `[ -n "$RDP_PASSWORD" ]`
+  # would print the value. `echo` is a bash builtin, so nothing reaches the process
+  # table either. Only the yes/no outcome survives into the log.
+  set +x
   if [ -n "$RDP_PASSWORD" ]; then
     echo "$KALI_USER:$RDP_PASSWORD" | chpasswd
+    RDP_PASSWORD_SET=yes
+  else
+    RDP_PASSWORD_SET=no
+  fi
+  unset RDP_PASSWORD
+  set -x
+
+  if [ "$RDP_PASSWORD_SET" = yes ]; then
     adduser xrdp ssl-cert 2>/dev/null || true
     systemctl enable --now xrdp
+    echo "xrdp enabled; password for '$KALI_USER' set (value not traced)."
   else
     systemctl enable xrdp || true
     echo "NOTE: set a password for '$KALI_USER' then start xrdp to use RDP/i3."

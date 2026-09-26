@@ -4,18 +4,25 @@
 $ErrorActionPreference = "Stop"
 Start-Transcript -Path "C:\bootstrap-member.log" -Append
 
-$admin = [ADSI]"WinNT://./Administrator,user"
-$admin.SetPassword("${domain_admin_password}")
-$admin.SetInfo()
+# Local Administrator password, for console/RDP logon before the domain join lands.
+# Non-fatal: a throw here (password policy, a provider hiccup) must not abort the
+# DNS configuration and domain join below, which are what the scenario needs.
+try {
+    $admin = [ADSI]"WinNT://./Administrator,user"
+    $admin.SetPassword("${domain_admin_password}")
+    $admin.SetInfo()
+} catch {
+    Write-Output "Could not set the local Administrator password: $_"
+}
 
 # DNS must be the DC (VPC DNS is disabled, §4b).
 Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | ForEach-Object {
-    Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses ${dc_ip}
+    Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses "${dc_ip}"
 }
 
 $cs = Get-CimInstance Win32_ComputerSystem
 if (-not $cs.PartOfDomain) {
-    while (-not (Test-NetConnection -ComputerName ${dc_ip} -Port 389 -InformationLevel Quiet)) {
+    while (-not (Test-NetConnection -ComputerName "${dc_ip}" -Port 389 -InformationLevel Quiet)) {
         Start-Sleep -Seconds 30
     }
     Start-Sleep -Seconds 30

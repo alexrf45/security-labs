@@ -9,7 +9,7 @@ is a build step, not a rewrite (see `.claude/rules/documentation.md`).
 | Area | Path | What |
 | --- | --- | --- |
 | **Explanation** | `decisions/` | ADRs — design rationale and the record of decisions. |
-| **How-to** | `runbooks/` | Task-oriented operational guides (build, detonate, roll back, tear down). |
+| **How-to** | `runbooks/` | Task-oriented operational guides (build, run a scenario, roll back, tear down). |
 | **Reference** | `reference/` | Module inputs/outputs, network/subnet tables, variable refs. |
 | **Reviews** | `reviews/` | Periodic posture reviews (`/lab-review`) — cost, safety, drift. |
 | **Archive** | `archive/proxmox/` | Previous on-prem/k8s eras — historical only, not live. |
@@ -20,7 +20,9 @@ is a build step, not a rewrite (see `.claude/rules/documentation.md`).
   from the Proxmox range to a cloud-native one; records the six operating constraints.
 - **ADR-0011 — Provider & topology** (`decisions/0011-…`, **Accepted**): AWS-only,
   ephemeral, single-AZ. Implemented in `_infra/terraform/aws/` (three roots). To deploy
-  it, follow the [AWS range deployment runbook](runbooks/aws-range-deployment.md).
+  it, follow the [AWS range deployment runbook](runbooks/aws-range-deployment.md); for
+  where the deployment currently stands, see the
+  [deployment status](runbooks/aws-range-deployment-status.md).
 - **ADR-0009 — Proxmox segmentation** (`decisions/0009-…`): Superseded by ADR-0010;
   kept for its air-gap/segmentation reasoning.
 
@@ -36,5 +38,5 @@ is a build step, not a rewrite (see `.claude/rules/documentation.md`).
 ## Safety
 
 The non-negotiable isolation invariants live in `.claude/rules/range-safety.md`
-(no egress route on detonation subnets, no public IP on victims, Tailscale-only
+(no egress route on victim subnets, no public IP on victims, Tailscale-only
 entry, IMDSv2 + no instance role, one-way telemetry). **Read before any range change.**

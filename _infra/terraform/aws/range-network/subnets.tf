@@ -16,12 +16,12 @@ resource "aws_subnet" "ops" {
   }
 }
 
-# Detonation subnets — no default route (routing.tf), no public IP. A victim has
+# Victim subnets — no default route (routing.tf), no public IP. A victim has
 # no next-hop off its segment toward the internet (range-safety.md §1-2). The VPC
-# local route still spans the whole CIDR, which is what lets two detonation subnets
+# local route still spans the whole CIDR, which is what lets two victim subnets
 # host a cross-subnet forest trust while both stay internet-air-gapped (ADR-0011 §7).
-resource "aws_subnet" "detonation" {
-  for_each = var.detonation_subnets
+resource "aws_subnet" "victim" {
+  for_each = var.victim_subnets
 
   vpc_id                  = aws_vpc.range.id
   cidr_block              = each.value
@@ -30,7 +30,7 @@ resource "aws_subnet" "detonation" {
 
   tags = {
     Name       = "${var.project}-${each.key}"
-    SubnetRole = "detonation"
+    SubnetRole = "victim"
     SubnetName = each.key
     Discovery  = "range-subnet"
   }

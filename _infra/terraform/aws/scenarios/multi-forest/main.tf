@@ -1,5 +1,5 @@
 locals {
-  # IMDSv2 required, hop limit 1, and NO instance profile on every detonation host
+  # IMDSv2 required, hop limit 1, and NO instance profile on every victim host
   # (range-safety.md §5): a compromised victim cannot mint AWS credentials.
   imdsv2 = {
     http_endpoint               = "enabled"
@@ -8,13 +8,13 @@ locals {
   }
 }
 
-# ============================ Forest A (det00) ==============================
+# ============================ Forest A (victim00) ==============================
 resource "aws_instance" "dc_a" {
   ami                         = data.aws_ami.windows.id
   instance_type               = var.dc_instance_type # DCs never spot (§2 spot policy)
   subnet_id                   = data.aws_subnet.forest_a.id
   private_ip                  = local.dc_a_ip
-  vpc_security_group_ids      = [data.aws_security_group.detonation.id]
+  vpc_security_group_ids      = [data.aws_security_group.victim.id]
   associate_public_ip_address = false
 
   metadata_options {
@@ -43,6 +43,12 @@ resource "aws_instance" "dc_a" {
     install_sysmon        = var.install_sysmon
   })
 
+  # A changed user_data must actually re-run. The provider default is an
+  # in-place attribute update, which leaves the OLD bootstrap on the box and
+  # makes a "fixed" script a no-op. A half-promoted DC cannot be repaired in
+  # place anyway, so replacement is the only honest behaviour here.
+  user_data_replace_on_change = true
+
   tags = {
     Name   = "${var.project}-dc-a"
     Role   = "domain-controller"
@@ -55,7 +61,7 @@ resource "aws_instance" "ws_a" {
   instance_type               = var.member_instance_type
   subnet_id                   = data.aws_subnet.forest_a.id
   private_ip                  = local.ws_a_ip
-  vpc_security_group_ids      = [data.aws_security_group.detonation.id]
+  vpc_security_group_ids      = [data.aws_security_group.victim.id]
   associate_public_ip_address = false
 
   dynamic "instance_market_options" {
@@ -93,6 +99,9 @@ resource "aws_instance" "ws_a" {
     install_sysmon        = var.install_sysmon
   })
 
+  # Changed user_data re-runs by replacing the host (see DC-A above).
+  user_data_replace_on_change = true
+
   tags = {
     Name   = "${var.project}-ws-a"
     Role   = "member-workstation"
@@ -100,13 +109,13 @@ resource "aws_instance" "ws_a" {
   }
 }
 
-# ============================ Forest B (det01) ==============================
+# ============================ Forest B (victim01) ==============================
 resource "aws_instance" "dc_b" {
   ami                         = data.aws_ami.windows.id
   instance_type               = var.dc_instance_type
   subnet_id                   = data.aws_subnet.forest_b.id
   private_ip                  = local.dc_b_ip
-  vpc_security_group_ids      = [data.aws_security_group.detonation.id]
+  vpc_security_group_ids      = [data.aws_security_group.victim.id]
   associate_public_ip_address = false
 
   metadata_options {
@@ -136,6 +145,9 @@ resource "aws_instance" "dc_b" {
     install_sysmon        = var.install_sysmon
   })
 
+  # Changed user_data re-runs by replacing the host (see DC-A above).
+  user_data_replace_on_change = true
+
   tags = {
     Name   = "${var.project}-dc-b"
     Role   = "domain-controller"
@@ -148,7 +160,7 @@ resource "aws_instance" "ws_b" {
   instance_type               = var.member_instance_type
   subnet_id                   = data.aws_subnet.forest_b.id
   private_ip                  = local.ws_b_ip
-  vpc_security_group_ids      = [data.aws_security_group.detonation.id]
+  vpc_security_group_ids      = [data.aws_security_group.victim.id]
   associate_public_ip_address = false
 
   dynamic "instance_market_options" {
@@ -185,6 +197,9 @@ resource "aws_instance" "ws_b" {
     wazuh_agent_group     = var.wazuh_agent_group
     install_sysmon        = var.install_sysmon
   })
+
+  # Changed user_data re-runs by replacing the host (see DC-A above).
+  user_data_replace_on_change = true
 
   tags = {
     Name   = "${var.project}-ws-b"

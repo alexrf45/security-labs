@@ -11,8 +11,8 @@ the archived `home-0ps-review-*` series. Read-only survey; the output is a docum
 3. **Live footprint** — run `/lab-status`: running instances, state-bearing roots,
    tailnet.
 4. **Safety invariants** — audit against [range-safety.md](../rules/range-safety.md):
-   any public IP on a victim? any egress route on a detonation subnet? IMDSv2 +
-   no-instance-role on detonation hosts? Tailscale-only entry? Flag violations.
+   any public IP on a victim? any egress route on a victim subnet? IMDSv2 +
+   no-instance-role on victim hosts? Tailscale-only entry? Flag violations.
 5. **Doc/build drift** — do the runbooks match the tree? Any TODO/`❌ not applied`
    phases? Broken links?
 6. **Harness health** — is the skills/plugins config still lean

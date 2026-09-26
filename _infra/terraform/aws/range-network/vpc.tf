@@ -2,7 +2,7 @@
 # 169.254.169.253) is reachable from a subnet with no IGW route, cannot be filtered
 # by SG/NACL, and is not logged — a live, invisible DNS-exfil channel. Turning VPC
 # DNS off makes DNS obey the same structural rule as everything else: it works from
-# ops (which has a route to the public resolvers below) and is dead in detonation
+# ops (which has a route to the public resolvers below) and is dead in victim
 # subnets (which do not). Scenarios that need in-segment DNS run their own resolver
 # (an AD DC *is* its domain's DNS server — ADR-0011 §7).
 resource "aws_vpc" "range" {
@@ -18,7 +18,7 @@ resource "aws_vpc" "range" {
 }
 
 # Custom DHCP option set handing out public resolvers. This is what gives ops
-# instances working DNS once VPC DNS is off; detonation instances receive it too
+# instances working DNS once VPC DNS is off; victim instances receive it too
 # but cannot use it, having no route to reach it.
 resource "aws_vpc_dhcp_options" "range" {
   domain_name_servers = var.public_dns_resolvers
@@ -34,7 +34,7 @@ resource "aws_vpc_dhcp_options_association" "range" {
 }
 
 # Internet Gateway is free (only NAT Gateways bill). Reachable only from the ops
-# route table; detonation route tables never point a default route at it.
+# route table; victim route tables never point a default route at it.
 resource "aws_internet_gateway" "range" {
   vpc_id = aws_vpc.range.id
 

@@ -1,4 +1,4 @@
-# Discover shared plumbing by tag (ADR-0011 §5). Two detonation subnets, one per forest.
+# Discover shared plumbing by tag (ADR-0011 §5). Two victim subnets, one per forest.
 data "aws_vpc" "range" {
   filter {
     name   = "tag:Discovery"
@@ -34,13 +34,13 @@ data "aws_subnet" "forest_b" {
   }
 }
 
-# All four victims share the detonation SG (self-referencing allow-all enables the
+# All four victims share the victim SG (self-referencing allow-all enables the
 # cross-subnet forest trust — ADR-0011 §4c/§7).
-data "aws_security_group" "detonation" {
+data "aws_security_group" "victim" {
   vpc_id = data.aws_vpc.range.id
   filter {
     name   = "tag:SGRole"
-    values = ["detonation"]
+    values = ["victim"]
   }
   filter {
     name   = "tag:Project"

@@ -11,13 +11,13 @@ variable "aws_region" {
 
 # --- Forest identities --------------------------------------------------------
 variable "forest_a_domain" {
-  description = "Root domain of forest A (in det00). Two separate forest ROOTS joined by a trust — not a parent/child tree (ADR-0011 §7)."
+  description = "Root domain of forest A (in victim00). Two separate forest ROOTS joined by a trust — not a parent/child tree (ADR-0011 §7)."
   type        = string
   default     = "forest-a.lab"
 }
 
 variable "forest_b_domain" {
-  description = "Root domain of forest B (in det01)."
+  description = "Root domain of forest B (in victim01)."
   type        = string
   default     = "forest-b.lab"
 }
@@ -32,15 +32,15 @@ variable "forest_b_netbios" {
   default = "FORESTB"
 }
 
-# --- Which detonation subnets to land in (discovered by name) ------------------
+# --- Which victim subnets to land in (discovered by name) ------------------
 variable "forest_a_subnet_name" {
   type    = string
-  default = "det00"
+  default = "victim00"
 }
 
 variable "forest_b_subnet_name" {
   type    = string
-  default = "det01"
+  default = "victim01"
 }
 
 # --- Secrets (no defaults; inject via op run -- ... TF_VAR_*) ------------------
