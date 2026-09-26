@@ -15,8 +15,8 @@
 # Read-only calls (`terraform validate`, `aws ec2 describe-*`) never match.
 #
 # Guarded binaries are terraform/tofu, packer and aws only. hcloud/az/gcloud branches
-# were removed: AWS is the sole provider (ADR-0011) and those CLIs are absent and not
-# needed (cloud-inventory.md), so they guarded nothing. Re-add if a provider returns.
+# were removed: AWS is the sole provider and those CLIs are absent, so they guarded
+# nothing. Re-add if a provider returns.
 #
 # HEREDOC BODIES ARE EXCLUDED (see strip_heredocs). Segmenting on newlines used to
 # make a heredoc line that merely reads `terraform apply` into its own segment,

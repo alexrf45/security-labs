@@ -170,10 +170,11 @@ Sensitive vars have **no default** (or empty) and are injected at apply from 1Pa
 | `tailnet_hostname` | string | `range-router` | |
 | `router_instance_type` | string | `t4g.micro` | |
 | `attacker_instance_type` | string | `t3.medium` | |
-| `collector_instance_type` | string | `t4g.medium` | 2 GB OOMs the Wazuh stack — don't shrink |
-| `ubuntu_arm_ami_owner` | string | `099720109477` | Canonical |
-| `ubuntu_arm_ami_name` | string | `ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-arm64-server-*` | |
-| `kali_ami_owner` | string | `aws-marketplace` | owner alias; Marketplace AMIs are owned by that account, not by a Kali publisher ID |
+| `collector_instance_type` | string | `t3.medium` | **x86_64** — Wazuh's all-in-one installer is only well-tested there, and $0.008/hr is not worth debugging arm64 packaging. Same 2 vCPU / 4 GiB as `t4g.medium`, so this is not extra capacity: 2 GB still OOMs the stack, don't shrink |
+| `ubuntu_ami_owner` | string | `099720109477` | Canonical; shared by both Ubuntu lookups |
+| `ubuntu_arm_ami_name` | string | `ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-arm64-server-*` | router only (arm64) |
+| `ubuntu_x86_ami_name` | string | `ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-amd64-server-*` | collector only (x86_64) |
+| `kali_ami_owner` | string | `aws-marketplace` | owner alias; Marketplace AMIs are owned by that account, not by a Kali publisher ID. Verified resolving 2026-09-26; launching also needs the Marketplace subscription |
 | `kali_ami_name` | string | `kali-last-snapshot-amd64-*` | |
 | `router_root_gb` / `attacker_root_gb` / `collector_root_gb` | number | `8` / `40` / `20` | gp3 encrypted |
 | `siem_mount_point` | string | `/data` | collector mount for the SIEM volume |
@@ -251,16 +252,16 @@ rate**, and Windows needs `--usage-file infracost-usage.yml`.
 | Instance | Role | Linux $/hr | Windows $/hr |
 | --- | --- | --- | --- |
 | t4g.micro | router | 0.0084 | — |
-| t4g.small | (lean collector) | 0.0168 | — |
-| t4g.medium | collector | 0.0336 | — |
-| t3.medium | attacker / DC / WS | 0.0416 | **0.0600** |
+| t4g.small | — | 0.0168 | — |
+| t4g.medium | (arm64 collector, not used) | 0.0336 | — |
+| t3.medium | attacker / collector / DC / WS | 0.0416 | **0.0600** |
 | t3.large | DC + ADCS | 0.0832 | 0.1108 |
 
 | Item | Cost |
 | --- | --- |
 | Standing (range-network) | ≈ $2.70/mo (30 GB gp3 + Cost Explorer) |
-| Ops tier | ≈ $0.084/hr (~$0.71 / 8h) |
-| Multi-forest session (all-in) | ≈ $2.86 / 8h on-demand · ≈ $2.26 spot members |
+| Ops tier | ≈ $0.104/hr (~$0.83 / 8h) |
+| Multi-forest session (all-in) | ≈ $2.92 / 8h on-demand · ≈ $2.32 spot members |
 | Public IPv4 (router EIP) | $0.005/hr |
 | gp3 storage | $0.08/GB-mo (never gp2 = $0.10) |
 | Budget alarms | $15 / $24 / $30 (50/80/100%) |

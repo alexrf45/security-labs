@@ -33,7 +33,7 @@ Each t3.medium Windows host is $0.0600/hr.
 | | On-demand | Members on spot |
 | --- | --- | --- |
 | this scenario (4 Win + EBS) | ~0.268/hr | ~0.194/hr |
-| **+ ops tier + IPv4** | **0.357/hr → $2.86 / 8h** | **0.282/hr → $2.26 / 8h** |
+| **+ ops tier + IPv4** | **0.365/hr → $2.92 / 8h** | **0.290/hr → $2.32 / 8h** |
 
 ~9 multi-forest sessions/month under the $30 ceiling. **DCs never run on spot** (a reclaim
 tears down the domain and trust); `member_use_spot = true` puts only WS-A/WS-B on spot.

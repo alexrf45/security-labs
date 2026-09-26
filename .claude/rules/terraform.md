@@ -67,14 +67,40 @@ The range is provisioned with Terraform. These rules govern how it is written an
   **SOPS-encrypted** by the user before commit. Never modify or re-encrypt a SOPS
   file without explicit user confirmation ([secrets.md](secrets.md)).
 - Every module and scenario root ships a README ([documentation.md](documentation.md)).
-- **Keep `description` on AWS *resources* inside AWS's charset — ASCII only.** Security
-  group and SG-rule descriptions accept only
-  `a-zA-Z0-9`, space, and `._-:/()#,@[]+=;{}!$*`. A `§`, an em dash, or an arrow there
-  fails at **apply**, not at `validate` or `tflint`, so it surfaces only once you are
-  mid-deploy (it cost a Phase 1 apply on 2026-09-26: `range-safety.md §3` in the router
-  SG description). Cite rule files by name without the section glyph. Terraform
-  **variable** descriptions never reach AWS and may use any character.
 - Run `/lint` (fmt + validate + tflint) before handing work back.
+
+## Descriptions
+
+`description` is an interface string — it shows up in plan output, `terraform-docs`
+tables, and the generated reference docs. Two rules, and they are about *length* and
+*charset*.
+
+**1. Say what the thing is for. Nothing more, nothing less.**
+
+- One short line: a noun phrase or a single sentence. No rationale, no cost math, no
+  history, no war stories, no "verified on <date>", no cross-references to other
+  variables.
+- The one admissible extra is a **hard coupling the reader cannot guess**, stated in a
+  clause: "Must match range-network", "Must be x86_64 to match the collector AMI".
+- Resource, SG-rule and NACL-rule descriptions follow the same rule — they name the
+  traffic or the thing, e.g. `"Pull agent installers from the collector mirror"`.
+- **Rationale belongs in an ADR or a doc under `_docs/`, not in the code.** The why for a
+  default, an instance size, a version pin or an architecture choice goes in the ADR that
+  decided it and in the variable table's Notes column in
+  `_docs/reference/aws-range-reference.md`. Code comments are for what the next editor
+  must not break, not for design notes.
+- Good: `"Instance type for the Wazuh collector. Must be x86_64 to match the collector
+  AMI."` Bad: the same line followed by three sentences on Wazuh's installer, the
+  $0.008/hr delta and an OOM caveat.
+
+**2. On AWS *resources*, stay inside AWS's charset — ASCII only.**
+
+Security group and SG-rule descriptions accept only `a-zA-Z0-9`, space, and
+`._-:/()#,@[]+=;{}!$*`. A `§`, an em dash, or an arrow fails at **apply** — not at
+`validate` or `tflint` — so it surfaces only once you are mid-deploy (it cost a Phase 1
+apply on 2026-09-26: `range-safety.md §3` in the router SG description). Cite rule files
+by name without the section glyph. Terraform **variable** descriptions never reach AWS and
+may use any character.
 
 ## Provider/topology decision
 

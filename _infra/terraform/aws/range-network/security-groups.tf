@@ -1,8 +1,4 @@
-# Security groups are the primary (stateful) isolation control (ADR-0011 §4c layer 1).
-# They live in range-network so ops-tier and scenario instances attach them by ID via
-# tag-filtered data sources. Directionality that a NACL cannot express (telemetry is
-# one-way victim -> collector; the collector must never initiate into a victim subnet)
-# is enforced here by referencing SG IDs rather than CIDRs.
+# Stateful isolation layer 1. Directionality is enforced by referencing SG IDs, not CIDRs.
 
 # --- Tailscale subnet router (ops) ---------------------------------------------
 resource "aws_security_group" "router" {
@@ -17,9 +13,6 @@ resource "aws_security_group" "router" {
   }
 }
 
-# Tailscale WireGuard direct path. Not SSH/RDP, so this does not violate the
-# "no management port open to 0.0.0.0/0" invariant; it is the encrypted tailnet
-# underlay and improves NAT traversal (DERP relay works even without it).
 resource "aws_vpc_security_group_ingress_rule" "router_wireguard" {
   security_group_id = aws_security_group.router.id
   description       = "Tailscale WireGuard"
@@ -83,7 +76,6 @@ resource "aws_security_group" "collector" {
   }
 }
 
-# Telemetry ingress from the victim SG only (one-way victim -> collector).
 resource "aws_vpc_security_group_ingress_rule" "collector_telemetry" {
   for_each = toset([for p in var.telemetry_ports : tostring(p)])
 
@@ -95,11 +87,6 @@ resource "aws_vpc_security_group_ingress_rule" "collector_telemetry" {
   referenced_security_group_id = aws_security_group.victim.id
 }
 
-# Operator SSH, reachable only from the ops CIDR — i.e. only via the Tailscale
-# subnet router, which masquerades tailnet traffic to an ops address. Nothing here
-# is open to 0.0.0.0/0, so range-safety.md §3 holds. Without this rule the collector
-# SG admits nothing but telemetry and 443, and there is no way to read
-# /var/log/collector-bootstrap.log when Wazuh fails to come up.
 resource "aws_vpc_security_group_ingress_rule" "collector_ssh" {
   security_group_id = aws_security_group.collector.id
   description       = "Operator SSH via the Tailscale subnet router"
@@ -118,9 +105,7 @@ resource "aws_vpc_security_group_ingress_rule" "collector_dashboard" {
   cidr_ipv4         = var.ops_subnet_cidr
 }
 
-# Egress limited to package updates. Deliberately NOT 0.0.0.0/0 and deliberately
-# no rule toward the victim SG: the collector must never open a connection into
-# a victim net (range-safety.md §7).
+# No egress rule toward the victim SG: the collector never initiates into a victim net.
 resource "aws_vpc_security_group_egress_rule" "collector_updates_https" {
   security_group_id = aws_security_group.collector.id
   description       = "Package updates (HTTPS) via the ops route"
@@ -152,7 +137,6 @@ resource "aws_security_group" "victim" {
   }
 }
 
-# Attacker -> victim on any port.
 resource "aws_vpc_security_group_ingress_rule" "victim_from_attacker" {
   security_group_id            = aws_security_group.victim.id
   description                  = "Attacker box reaches victims on any port"
@@ -160,10 +144,7 @@ resource "aws_vpc_security_group_ingress_rule" "victim_from_attacker" {
   referenced_security_group_id = aws_security_group.attacker.id
 }
 
-# Victim <-> victim (same SG). Enables a cross-subnet forest trust (victim00<->victim01):
-# Kerberos, LDAP, SMB, RPC EPM + dynamic range all ride the VPC local route between
-# hosts that share this SG (ADR-0011 §7). Baseline is permit-all intra-SG; a scenario
-# wanting inter-forest isolation layers a tighter SG on top.
+# Permit-all intra-SG, so a cross-subnet forest trust works.
 resource "aws_vpc_security_group_ingress_rule" "victim_intra" {
   security_group_id            = aws_security_group.victim.id
   description                  = "Victim-to-victim (forest trust, lateral movement)"
@@ -171,7 +152,6 @@ resource "aws_vpc_security_group_ingress_rule" "victim_intra" {
   referenced_security_group_id = aws_security_group.victim.id
 }
 
-# Telemetry egress to the collector only.
 resource "aws_vpc_security_group_egress_rule" "victim_telemetry" {
   for_each = toset([for p in var.telemetry_ports : tostring(p)])
 
@@ -183,8 +163,6 @@ resource "aws_vpc_security_group_egress_rule" "victim_telemetry" {
   referenced_security_group_id = aws_security_group.collector.id
 }
 
-# Victim <-> victim egress (forest trust). No internet egress rule exists, and there
-# is no route regardless (range-safety.md §1, §6 egress-deny by default).
 resource "aws_vpc_security_group_egress_rule" "victim_intra" {
   security_group_id            = aws_security_group.victim.id
   description                  = "Victim-to-victim (forest trust, lateral movement)"
@@ -193,8 +171,7 @@ resource "aws_vpc_security_group_egress_rule" "victim_intra" {
 }
 
 # --- Opt-in agent package mirror (default off) ---------------------------------
-# Victim hosts pull agent installers from the collector's local mirror over one
-# port. Still victim-initiated: the collector never opens a connection into victim.
+# Victim-initiated only.
 resource "aws_vpc_security_group_egress_rule" "victim_pull_mirror" {
   count = var.enable_agent_package_mirror ? 1 : 0
 
@@ -217,19 +194,9 @@ resource "aws_vpc_security_group_ingress_rule" "collector_serve_mirror" {
   referenced_security_group_id = aws_security_group.victim.id
 }
 
-# --- VPC default security group: adopted and emptied ---------------------------
-# Same fail-closed reasoning as aws_default_route_table in routing.tf. Nothing in the
-# range references this group, but AWS creates one per VPC with allow-all-from-self
-# ingress and allow-all egress, and an instance launched WITHOUT an explicit
-# vpc_security_group_ids lands in it silently. In a victim subnet that would mean
-# unrestricted reach across the whole VPC CIDR, bypassing the SG layer of invariant 11.
-#
-# Omitting every ingress/egress block is what empties it: the provider adopts the
-# existing group and immediately revokes all rules. This is FSBP/CIS **EC2.2**, "VPC
-# default security groups should not allow inbound or outbound traffic".
-#
-# Provider caveat: removing this resource later does NOT restore the original rules, it
-# only stops managing the (already emptied) group.
+# --- VPC default security group: adopted and emptied (FSBP/CIS EC2.2) ----------
+# An instance launched without explicit vpc_security_group_ids lands here silently.
+# Omitting all ingress/egress blocks revokes every rule. Keep it empty.
 resource "aws_default_security_group" "range" {
   vpc_id = aws_vpc.range.id
 

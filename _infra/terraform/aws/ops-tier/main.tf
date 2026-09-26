@@ -1,6 +1,5 @@
 locals {
-  # IMDSv2 required + hop limit 1 everywhere (range-safety.md §5). No instance
-  # profile is attached to any host in this root.
+  # IMDSv2 required, hop limit 1, no instance profile (range-safety.md §5).
   imdsv2 = {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
@@ -11,15 +10,7 @@ locals {
 }
 
 # --- Operator SSH key ---------------------------------------------------------
-# What makes `ssh <user>@<private-ip>` work once you are on the tailnet and the
-# router is advertising the ops route. Reachability is still Tailscale-only: no SG
-# in the range permits 22 from the internet (range-safety.md §3).
-#
-# Only the PUBLIC half is handled here. The private key stays in the 1Password
-# "SSH Key" item and is served to the ssh client by 1Password's SSH agent, so no
-# private key file exists on the workstation and none can reach a victim subnet
-# (range-safety.md §7). trimspace() because `op read` / `$(...)` round-trips differ
-# in whether they keep a trailing newline.
+# Public half only; the private key stays in 1Password.
 resource "aws_key_pair" "ops" {
   count = local.ssh_public_key != "" ? 1 : 0
 
@@ -37,8 +28,6 @@ locals {
   )
 }
 
-# A plan-time warning, not a hard failure: standing the tier up without a key is
-# legal but leaves no shell on the attacker or the collector.
 check "operator_ssh_key" {
   assert {
     condition     = local.ssh_public_key != "" || var.ssh_key_name != ""
@@ -64,7 +53,7 @@ resource "aws_instance" "router" {
   }
 
   root_block_device {
-    volume_type = "gp3" # never gp2 (ADR-0011 §2)
+    volume_type = "gp3" # never gp2
     volume_size = var.router_root_gb
     encrypted   = true
   }
@@ -75,9 +64,7 @@ resource "aws_instance" "router" {
     hostname           = var.tailnet_hostname
   })
 
-  # A changed user_data must actually re-run. The provider default is an
-  # in-place attribute update, which leaves the OLD bootstrap on the box and
-  # makes a "fixed" script a no-op until the instance is tainted by hand.
+  # Required: the provider default updates user_data in place without re-running it.
   user_data_replace_on_change = true
 
   tags = {
@@ -87,8 +74,7 @@ resource "aws_instance" "router" {
   }
 }
 
-# The one public IPv4 in the whole range, present only while a session runs
-# (ADR-0011 §4d). $0.005/hr.
+# The one public IPv4 in the whole range, present only while a session runs. $0.005/hr.
 resource "aws_eip" "router" {
   instance = aws_instance.router.id
   domain   = "vpc"
@@ -126,7 +112,6 @@ resource "aws_instance" "attacker" {
     rdp_password      = var.attacker_rdp_password
   })
 
-  # Changed user_data re-runs by replacing the host (see the router above).
   user_data_replace_on_change = true
 
   tags = {
@@ -138,7 +123,7 @@ resource "aws_instance" "attacker" {
 
 # --- Collector / SIEM ---------------------------------------------------------
 resource "aws_instance" "collector" {
-  ami                         = data.aws_ami.ubuntu_arm.id
+  ami                         = data.aws_ami.ubuntu_x86.id
   instance_type               = var.collector_instance_type
   subnet_id                   = data.aws_subnet.ops.id
   vpc_security_group_ids      = [data.aws_security_group.collector.id]
@@ -169,7 +154,6 @@ resource "aws_instance" "collector" {
     wazuh_agent_pkg = var.wazuh_agent_pkg
   })
 
-  # Changed user_data re-runs by replacing the host (see the router above).
   user_data_replace_on_change = true
 
   tags = {
@@ -185,7 +169,6 @@ resource "aws_volume_attachment" "siem" {
   volume_id   = data.aws_ebs_volume.siem.id
   instance_id = aws_instance.collector.id
 
-  # On teardown, detach without destroying the volume (prevent_destroy is set on
-  # the volume in range-network anyway).
+  # Detach without destroying the volume.
   stop_instance_before_detaching = true
 }

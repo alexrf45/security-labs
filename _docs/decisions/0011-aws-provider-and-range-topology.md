@@ -4,10 +4,13 @@
   roots: `range-network`, `ops-tier`, `scenarios/multi-forest`); Proxmox era archived
   under `_docs/archive/proxmox/`.
 - **Amended:** 2026-09-26 — the collector was right-sized from `t4g.small` to
-  `t4g.medium` (the single-node Wazuh stack OOMs on 2 GiB). Every cost figure in §2 and §7
-  below reflects that; it moved a multi-forest session from $2.72 to **$2.86/8 h** and the
-  monthly envelope from 16 to **15** single-forest sessions. The decision itself is
-  unchanged.
+  `t4g.medium` (the single-node Wazuh stack OOMs on 2 GiB), then moved from `t4g.medium` to
+  **`t3.medium` (x86_64)**: Wazuh's all-in-one installer is only well-tested on x86_64, and
+  $0.008/hr is not worth the risk of debugging arm64 packaging mid-session. Same 2 vCPU /
+  4 GiB, so this buys no capacity — the box is still under Wazuh's documented 4 vCPU / 8 GiB
+  floor. **ARM is now the router only.** Every cost figure in §2 and §7 reflects both moves:
+  a multi-forest session went $2.72 → $2.86 → **$2.92/8 h**, and the monthly envelope 16 →
+  15 → **14** single-forest sessions. The decision itself is unchanged.
 - **Date:** 2026-09-24
 - **Deciders:** fr3d (with Claude review)
 - **Related:** Implements the deferred provider/topology decision from
@@ -139,19 +142,19 @@ storage only**. An Internet Gateway is free; only NAT Gateways are billed.
 | Tailscale subnet router | t4g.micro | 0.0084 |
 | Public IPv4 × 1 (router only) | — | 0.0050 |
 | Attacker (Kali) | t3.medium | 0.0416 |
-| Collector / SIEM | t4g.medium | 0.0336 |
+| Collector / SIEM | t3.medium | 0.0416 |
 | Windows domain controller | t3.medium (Win) | 0.0600 |
 | Windows workstation | t3.medium (Win) | 0.0600 |
 | Ephemeral EBS (158 GB gp3, prorated) | — | 0.0173 |
-| **Total** | | **0.2259/hr** |
+| **Total** | | **0.2339/hr** |
 
-- **Full session (8 h): ≈ $1.81.**
+- **Full session (8 h): ≈ $1.87.**
 - **Lean Linux-only session (router + attacker + 2 × t4g.small, 8 h): ≈ $0.79.**
-- **Multi-forest session (§7): ≈ $2.86/8 h** on-demand, **≈ $2.26** with members on spot.
-- **Budget envelope:** $30 − $2.70 standing = **$27.30** for session hours ≈ **15 full
+- **Multi-forest session (§7): ≈ $2.92/8 h** on-demand, **≈ $2.32** with members on spot.
+- **Budget envelope:** $30 − $2.70 standing = **$27.30** for session hours ≈ **14 full
   single-forest sessions/month**, or **9 full multi-forest sessions/month**. The
-  planning target is **12 full single-forest (or 8 multi-forest) sessions ≈ $24.40
-  all-in**, leaving ~19% headroom for overruns, egress, and snapshots.
+  planning target is **12 full single-forest sessions ≈ $25.15 all-in**, leaving ~16%
+  headroom for overruns, egress, and snapshots.
 
 **Windows pricing, locked.** The EC2 Windows license fee is charged **per 2-vCPU pair**,
 so for any 2-vCPU `t3` it is a **flat $0.0184/hr** regardless of the Linux base rate.
@@ -193,7 +196,7 @@ run are binding on the implementation:
 never run on spot**, because a spot reclaim mid-scenario tears down the domain (and, in
 §7, the forest trust) and forces a full re-promote. Spot is an opt-in per-scenario
 variable for **stateless member hosts** only. Member workstations on spot at $0.0226 vs
-$0.0600 cut a multi-forest session from $2.86 to ≈ $2.26.
+$0.0600 cut a multi-forest session from $2.92 to ≈ $2.32.
 
 ### 3. Network topology
 
@@ -221,7 +224,7 @@ graph TB
         subgraph ops["ops 10.40.10.0/24 — default route to IGW"]
             R["Tailscale subnet router<br/>t4g.micro · public IPv4<br/>advertises 10.40.10.0/24 ONLY"]
             K["Attacker (Kali)<br/>t3.medium · no public IP"]
-            C["Collector / SIEM<br/>t4g.medium · persistent EBS"]
+            C["Collector / SIEM<br/>t3.medium · persistent EBS"]
         end
         subgraph victim["victim00 10.40.50.0/24 — NO default route"]
             D1["Windows DC<br/>IMDSv2 · no instance profile"]
@@ -390,14 +393,14 @@ graph LR
 
 | Line | On-demand | Members on spot |
 | --- | --- | --- |
-| router + IPv4 + attacker + collector | 0.0886/hr | 0.0886/hr |
+| router + IPv4 + attacker + collector | 0.0966/hr | 0.0966/hr |
 | 2× DC-A/B t3.medium Win (on-demand) | 0.1200/hr | 0.1200/hr |
 | 2× WS-A/B t3.medium Win | 0.1200/hr | 0.0452/hr (spot) |
 | EBS ~258 GB gp3 | 0.0283/hr | 0.0283/hr |
-| **Total** | **0.3569/hr → $2.86/8 h** | **0.2821/hr → $2.26/8 h** |
+| **Total** | **0.3649/hr → $2.92/8 h** | **0.2901/hr → $2.32/8 h** |
 
-At $2.86/session the ceiling allows **~9 multi-forest sessions/month** all-in (spot
-members: ~12). DCs stay on-demand per the §2 spot policy; only the two member
+At $2.92/session the ceiling allows **~9 multi-forest sessions/month** all-in (spot
+members: ~11). DCs stay on-demand per the §2 spot policy; only the two member
 workstations are spot-eligible.
 
 **The reproducibility hard part — trust bootstrap.** Forest promotion and trust creation
@@ -453,7 +456,7 @@ is settled there against real behaviour.
 
 - **Positive:**
   - **Standing cost falls to ≈ $2.70/mo**, so ~90% of the ceiling is available as
-    session hours — roughly 15 full Windows+Linux sessions per month.
+    session hours — roughly 14 full Windows+Linux sessions per month.
   - Windows is finally reproducible: a license-included AMI plus `user_data`, no manual
     image build anywhere in the pipeline.
   - Every `range-safety.md` invariant becomes a declarative Terraform attribute that

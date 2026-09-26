@@ -1,6 +1,5 @@
 locals {
-  # IMDSv2 required, hop limit 1, and NO instance profile on every victim host
-  # (range-safety.md §5): a compromised victim cannot mint AWS credentials.
+  # IMDSv2 required, hop limit 1, no instance profile (range-safety.md §5).
   imdsv2 = {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
@@ -43,10 +42,7 @@ resource "aws_instance" "dc_a" {
     install_sysmon        = var.install_sysmon
   })
 
-  # A changed user_data must actually re-run. The provider default is an
-  # in-place attribute update, which leaves the OLD bootstrap on the box and
-  # makes a "fixed" script a no-op. A half-promoted DC cannot be repaired in
-  # place anyway, so replacement is the only honest behaviour here.
+  # Required: the provider default updates user_data in place without re-running it.
   user_data_replace_on_change = true
 
   tags = {
@@ -99,7 +95,6 @@ resource "aws_instance" "ws_a" {
     install_sysmon        = var.install_sysmon
   })
 
-  # Changed user_data re-runs by replacing the host (see DC-A above).
   user_data_replace_on_change = true
 
   tags = {
@@ -145,7 +140,6 @@ resource "aws_instance" "dc_b" {
     install_sysmon        = var.install_sysmon
   })
 
-  # Changed user_data re-runs by replacing the host (see DC-A above).
   user_data_replace_on_change = true
 
   tags = {
@@ -198,7 +192,6 @@ resource "aws_instance" "ws_b" {
     install_sysmon        = var.install_sysmon
   })
 
-  # Changed user_data re-runs by replacing the host (see DC-A above).
   user_data_replace_on_change = true
 
   tags = {

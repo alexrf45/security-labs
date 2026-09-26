@@ -1,6 +1,4 @@
-# Outputs are for humans (`terraform output`) and documentation only. The ops-tier
-# and scenario roots do NOT consume this state; they rediscover everything below via
-# tag-filtered data sources (ADR-0011 §5, range-safety.md §9).
+# For humans only. Downstream roots rediscover all of this by tag (range-safety.md §9).
 output "vpc_id" {
   description = "Range VPC ID."
   value       = aws_vpc.range.id

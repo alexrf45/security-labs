@@ -1,6 +1,6 @@
 #cloud-config
 # Tailscale subnet router — the single human entry path (range-safety.md §3).
-# It advertises the OPS subnet ONLY and never a victim CIDR (ADR-0011 §4a), so
+# It advertises the OPS subnet ONLY and never a victim CIDR, so
 # the tailnet (and therefore the workstation, 1Password, and the age key) has no
 # route into a victim net. --accept-dns=false because VPC DNS is disabled and the
 # box uses the public resolvers from the DHCP option set.

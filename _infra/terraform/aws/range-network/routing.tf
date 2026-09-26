@@ -17,10 +17,8 @@ resource "aws_route_table_association" "ops" {
   route_table_id = aws_route_table.ops.id
 }
 
-# Victim route table: NO routes beyond the implicit VPC local route. This is
-# the structural air-gap toward the internet (range-safety.md §1). Never add a
-# route here "to make something reachable" — reach victim hosts from the ops
-# attacker box instead.
+# Victim route table: NO routes beyond the implicit local route (range-safety.md §1).
+# Never add a route here — reach victim hosts from the attacker box instead.
 resource "aws_route_table" "victim" {
   vpc_id = aws_vpc.range.id
 
@@ -36,9 +34,7 @@ resource "aws_route_table_association" "victim" {
   route_table_id = aws_route_table.victim.id
 }
 
-# Lock the VPC's main route table down to local-only. Any subnet not explicitly
-# associated above would fall back to this; keeping it routeless means an
-# accidentally-unassociated subnet fails closed rather than inheriting egress.
+# Main route table locked to local-only, so an unassociated subnet fails closed.
 resource "aws_default_route_table" "range" {
   default_route_table_id = aws_vpc.range.default_route_table_id
 

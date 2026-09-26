@@ -32,7 +32,7 @@ if (-not $cs.PartOfDomain) {
 }
 
 %{ if wazuh_manager_ip != "" ~}
-# --- Wazuh agent + Sysmon: telemetry to the collector (ADR-0011 §4c one-way) ---
+# --- Wazuh agent + Sysmon: telemetry to the collector ( one-way) ---
 # Installers are pulled from the collector's local mirror (victims have no internet
 # route); if the mirror/network path is not enabled the download fails and this block
 # is skipped without failing the boot — telemetry simply starts once the package path

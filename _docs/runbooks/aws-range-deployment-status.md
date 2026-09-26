@@ -34,10 +34,10 @@ Hard gates, in order. Each must pass before the next phase.
 | 2 | Victim route table has no `0.0.0.0/0` route | 1 | ☑ 2026-09-26 — victim RT is local-only, both victim subnets associated; IGW route exists only on the ops RT; main RT locked and unassociated |
 | 3 | SIEM volume `available` | 1 | ☑ 2026-09-26 |
 | 4 | **Invariant 10 DNS tests**, see below | 1→2 | ☐ |
-| 5 | Kali AMI resolves **and** the Marketplace subscription is accepted — `describe-images` alone can pass while `RunInstances` fails `OptInRequired` | 1→2 | ☐ |
-| 6 | Advertised route `10.40.10.0/24` **approved** in the Tailscale admin console — a route advertised but unapproved leaves a healthy-looking router with nothing behind it | 2 | ☐ |
+| 5 | Kali AMI resolves **and** the Marketplace subscription is accepted | 1→2 | ☑ 2026-09-26 |
+| 6 | Advertised route `10.40.10.0/24` **approved** in the Tailscale admin console. Manual by choice, and the router is recreated per session, so this repeats on every Phase 2 apply | 2 | ☐ |
 | 7 | Router in `tailscale status`, shell on all three ops hosts | 2 | ☐ |
-| 8 | Collector bootstrap resolved the SIEM volume, Wazuh stack up (arm64 fallback: switch to `t3.medium`, +$0.008/hr) | 2 | ☐ |
+| 8 | Collector bootstrap resolved the SIEM volume, Wazuh stack up (collector is x86_64 `t3.medium`) | 2 | ☐ |
 | 9 | Both forests up, trust bidirectional, agents `Active` | 3 | ☐ |
 
 ### Gate 4 — invariant 10 (VPC DNS off)
@@ -98,4 +98,4 @@ When this page is stale, these answer it from live state instead:
 | 2026-09-26 | 0, 1 | — | ≈ $2.70/mo standing (SIEM volume only) | First apply. Gates 1–3 pass: both VPC DNS attributes `false`, victim RT local-only, SIEM volume `available`. Also verified: VPC default SG empty both ways, budget carries 4 notifications. Apply needed one code fix — `§` in a security group description is rejected by AWS (see [terraform.md](../../.claude/rules/terraform.md) style rules). Gate 4 waits on Phase 2/3 hosts. No confirmation email exists for budget `EMAIL` subscribers — nothing to wait for |
 
 Running total this month: **$0** of the **$30** ceiling. Budget fits **9** multi-forest or
-**15** single-forest sessions; 10 multi-forest would exceed it.
+**14** single-forest sessions; 10 multi-forest would exceed it.

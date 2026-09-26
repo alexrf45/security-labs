@@ -1,7 +1,5 @@
 # --- Discover shared plumbing by TAG, never via terraform_remote_state ---------
-# ADR-0011 §5 / range-safety.md §9: a per-session root must never hold a reader for
-# the shared root's state (plaintext secrets), and a wiped session must not be able
-# to corrupt shared state.
+# range-safety.md §9: this root must never hold a reader for the shared root's state.
 
 data "aws_vpc" "range" {
   filter {
@@ -72,9 +70,7 @@ data "aws_ebs_volume" "siem" {
     name   = "tag:Project"
     values = [var.project]
   }
-  # Exclude creating/deleting/error volumes. `in-use` has to stay: on a re-apply the
-  # volume is still attached to the outgoing collector. most_recent would otherwise
-  # silently pick a failed volume if one ever lingered.
+  # `in-use` must stay: on a re-apply the volume is still on the outgoing collector.
   filter {
     name   = "status"
     values = ["available", "in-use"]
@@ -82,9 +78,10 @@ data "aws_ebs_volume" "siem" {
 }
 
 # --- AMIs ---------------------------------------------------------------------
+# Router is arm64, collector is x86_64. Each lookup pins its architecture.
 data "aws_ami" "ubuntu_arm" {
   most_recent = true
-  owners      = [var.ubuntu_arm_ami_owner]
+  owners      = [var.ubuntu_ami_owner]
   filter {
     name   = "name"
     values = [var.ubuntu_arm_ami_name]
@@ -92,6 +89,23 @@ data "aws_ami" "ubuntu_arm" {
   filter {
     name   = "architecture"
     values = ["arm64"]
+  }
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+data "aws_ami" "ubuntu_x86" {
+  most_recent = true
+  owners      = [var.ubuntu_ami_owner]
+  filter {
+    name   = "name"
+    values = [var.ubuntu_x86_ami_name]
+  }
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
   }
   filter {
     name   = "virtualization-type"

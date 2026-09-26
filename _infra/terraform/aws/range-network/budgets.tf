@@ -1,13 +1,6 @@
-# A budget + alarm is mandatory in every environment (cost-guardrails.md rule 4),
-# provisioned alongside the first resource, not later. AWS Budgets is free for the
-# first two budgets. Thresholds are 50/80/100 percent of the $30 ceiling = $15/$24/$30
-# (ADR-0011 §2).
-#
-# These notifications are unconditional on purpose. They used to be wrapped in a
-# `length(var.budget_alert_emails) > 0` guard, which meant the default empty list
-# produced a budget with NO notifications — an alarm-less budget that looks correctly
-# configured in the console. budget_alert_emails is now a required variable with a
-# non-empty validation, so the guard is gone and the failure is impossible.
+# A budget with notifications is mandatory (cost-guardrails.md rule 4). Thresholds are
+# 50/80/100 percent of the ceiling. Do NOT make the notifications conditional: an empty
+# subscriber list yields a budget that alerts nobody and looks correct in the console.
 locals {
   budget_notifications = [
     { threshold = 50, notification_type = "ACTUAL" },

@@ -15,24 +15,24 @@ Design rationale: [ADR-0011 §4–6](../../../../_docs/decisions/0011-aws-provid
 | --- | --- | --- |
 | **router** | Ubuntu 24.04 arm64 | `source_dest_check=false`, IP forwarding, advertises the **ops subnet only**; carries the range's single EIP |
 | **attacker** | Kali amd64 (Marketplace) | No public IP. SCRT daily-driver build + i3 over xrdp (`:3389`) |
-| **collector** | Ubuntu 24.04 arm64 | No public IP. Wazuh manager (1514/1515) + dashboard (443); mounts the persistent SIEM volume |
+| **collector** | Ubuntu 24.04 **x86_64** | No public IP. Wazuh manager (1514/1515) + dashboard (443); mounts the persistent SIEM volume |
 
 All three: IMDSv2 required, hop limit 1, no instance profile, gp3 encrypted root, and
 `user_data_replace_on_change = true` (a changed bootstrap script replaces the host).
 
 ## Cost
 
-Ephemeral, so read the per-hour rate — `infracost` reports ~$54/mo because it assumes 730
+Ephemeral, so read the per-hour rate — `infracost` reports ~$72/mo because it assumes 730
 running hours.
 
 | Host | Type | $/hr |
 | --- | --- | --- |
 | router | t4g.micro | 0.0084 |
 | attacker | t3.medium | 0.0416 |
-| collector | t4g.medium | 0.0336 |
-| **subtotal** | | **0.0836** |
+| collector | t3.medium | 0.0416 |
+| **subtotal** | | **0.0916** |
 
-Plus the router's public IPv4 (~$0.005/hr) and prorated root volumes → **~$0.71 per 8-hour
+Plus the router's public IPv4 (~$0.005/hr) and prorated root volumes → **~$0.83 per 8-hour
 session**.
 
 ## Prerequisites

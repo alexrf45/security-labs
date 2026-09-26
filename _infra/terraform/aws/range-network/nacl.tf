@@ -1,25 +1,11 @@
-# Victim network ACL — stateless, subnet-level, and LOAD-BEARING (ADR-0011 §4c),
-# not belt-and-braces. Within one VPC the implicit local route reaches the ops subnet
-# at L3 no matter what the route table says, so ops<->victim separation is
-# rule-based rather than structural (an honest degradation from ADR-0009's gateway-less
-# VLAN). Security groups (security-groups.tf) are layer 1; this NACL is layer 2.
-#
-# The meaningful control here is on EGRESS toward ops: a victim host may reach the
-# ops subnet ONLY on the collector telemetry ports, on ephemeral ports, and with ICMP
-# (all three being return traffic to the attacker). It cannot open a new connection to
-# an arbitrary ops service (router SSH, the Wazuh API, the Tailscale node). Note that
-# ephemeral egress starts at 1024, so a probe sourced from a privileged port — e.g.
-# `nmap --source-port 53` — gets no reply. That is deliberate, not a defect: widening it
-# would let a victim reach low ops ports. Victim<->victim
-# is permitted in full so a cross-subnet forest trust works (ADR-0011 §7); inter-forest
-# isolation, where a scenario wants it, is a scenario-level SG choice on top of this.
+# Victim network ACL — stateless isolation layer 2, load-bearing (range-safety.md §11).
+# Egress toward ops is limited to telemetry ports, ephemeral return traffic and ICMP.
+# Do not widen it. Victim<->victim is permitted in full so a forest trust works.
 
 locals {
   victim_cidrs = values(var.victim_subnets)
 
-  # Ingress: allow all from every victim CIDR (victim<->victim trust), and allow all
-  # from ops (the attacker legitimately probes arbitrary victim ports; which ops HOST
-  # may initiate is gated by SGs — only the attacker SG, never the collector).
+  # All from every victim CIDR, and all from ops. Which ops HOST may initiate is an SG call.
   victim_nacl_ingress = concat(
     [for i, c in local.victim_cidrs : {
       rule_no    = 100 + i
@@ -41,10 +27,7 @@ locals {
     }],
   )
 
-  # Egress: allow all to every victim CIDR (trust); to ops, allow ONLY the
-  # telemetry ports (to the collector) and ephemeral TCP/UDP (replies to the
-  # attacker). Everything else toward ops — and toward the internet, which also has
-  # no route — falls to the NACL's implicit deny.
+  # All to every victim CIDR; to ops, only telemetry + ephemeral. Rest is implicit deny.
   victim_nacl_egress = concat(
     [for i, c in local.victim_cidrs : {
       rule_no    = 100 + i
@@ -83,15 +66,7 @@ locals {
         icmp_type  = null
         icmp_code  = null
       },
-      # ICMP echo replies back to the attacker. The NACL is stateless, so a reply needs
-      # its own rule: rules 300/310 cover TCP/UDP return traffic but nothing covered
-      # ICMP, which silently broke `ping` and `nmap -PE` from the attacker even though
-      # the security groups permitted them.
-      #
-      # This does not widen victim-initiated reach. Being stateless, the NACL cannot tell
-      # a reply from a fresh packet, but the victim SG has no egress rule permitting ICMP
-      # to the attacker — echo replies ride SG statefulness instead. The SG therefore
-      # remains the control, exactly as invariant 11 intends.
+      # ICMP echo replies to the attacker; stateless, so it needs its own rule.
       {
         rule_no    = 320
         protocol   = "1" # icmp
@@ -144,9 +119,7 @@ resource "aws_network_acl_rule" "victim_egress" {
   icmp_code      = each.value.icmp_code
 }
 
-# Opt-in agent-package-mirror allowance (range-safety.md §6 controlled allow-list).
-# Off by default; when on, victim hosts may reach the ops subnet on exactly one
-# additional port to pull agent installers from the collector's local mirror.
+# Opt-in mirror allowance: one extra victim -> ops port (range-safety.md §6).
 resource "aws_network_acl_rule" "victim_egress_mirror" {
   count = var.enable_agent_package_mirror ? 1 : 0
 

@@ -1,8 +1,7 @@
 terraform {
   required_version = ">= 1.9.0"
 
-  # Local state (terraform.md). Per-session root: applied at session start,
-  # destroyed at teardown. Never commit *.tfstate.
+  # Local state. Per-session root; never commit *.tfstate.
   required_providers {
     aws = {
       source  = "hashicorp/aws"

@@ -2,8 +2,8 @@
 # =============================================================================
 # Collector provisioning: single-node Wazuh (manager + indexer + dashboard) with
 # its stateful data relocated onto the persistent SIEM volume, so the detection
-# index and agent registrations survive session teardown (ADR-0011 §2,
-# range-safety.md §8). Optionally mirrors agent installers for air-gapped victims.
+# index and agent registrations survive session teardown
+# (range-safety.md §8). Optionally mirrors agent installers for air-gapped victims.
 #
 # NOTE (to validate in a later sprint): first-run install + migrate is exercised
 # here; re-attaching an EXISTING volume to a FRESH collector reinstalls binaries
@@ -55,11 +55,8 @@ mount -a
 mkdir -p "$MOUNT/wazuh-indexer" "$MOUNT/ossec-etc" "$MOUNT/installers"
 
 # --- 2. Swap, as an OOM backstop ---------------------------------------------
-# Wazuh documents the all-in-one stack at 4 vCPU / 8 GiB for 1-25 agents; the default
-# collector is a t4g.medium (2 vCPU / 4 GiB), chosen to stay inside the $30 ceiling. Swap
-# means a memory spike pages instead of getting the indexer OOM-killed. OpenSearch would
-# normally prefer swap disabled for latency, which is the right trade on real hardware and
-# the wrong one here — a slow dashboard beats a dead indexer in a lab.
+# The collector is under Wazuh's documented 4 vCPU / 8 GiB floor. Swap is
+# deliberate here despite OpenSearch preferring it off: do not remove it.
 if [ ! -f /swapfile ]; then
   fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
   chmod 600 /swapfile

@@ -1,8 +1,7 @@
 terraform {
   required_version = ">= 1.9.0"
 
-  # Local state (terraform.md). Disposable scenario root: its own state, separate
-  # blast radius from range-network. Never commit *.tfstate.
+  # Local state, separate from range-network. Never commit *.tfstate.
   required_providers {
     aws = {
       source  = "hashicorp/aws"

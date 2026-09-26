@@ -1,4 +1,4 @@
-# Discover shared plumbing by tag (ADR-0011 §5). Two victim subnets, one per forest.
+# Discover shared plumbing by tag. Two victim subnets, one per forest.
 data "aws_vpc" "range" {
   filter {
     name   = "tag:Discovery"
@@ -34,8 +34,7 @@ data "aws_subnet" "forest_b" {
   }
 }
 
-# All four victims share the victim SG (self-referencing allow-all enables the
-# cross-subnet forest trust — ADR-0011 §4c/§7).
+# All four victims share the victim SG, which is what lets the forest trust work.
 data "aws_security_group" "victim" {
   vpc_id = data.aws_vpc.range.id
   filter {
@@ -62,18 +61,14 @@ data "aws_ami" "windows" {
 }
 
 locals {
-  # Static private IPs derived from the discovered subnet CIDRs, so DCs can name each
-  # other in conditional forwarders and members can point DNS at their DC — without
-  # working VPC DNS (which is disabled, §4b). .10 = DC, .20 = workstation.
+  # Static IPs, since VPC DNS is off. .10 = DC, .20 = workstation.
   dc_a_ip = cidrhost(data.aws_subnet.forest_a.cidr_block, 10)
   ws_a_ip = cidrhost(data.aws_subnet.forest_a.cidr_block, 20)
   dc_b_ip = cidrhost(data.aws_subnet.forest_b.cidr_block, 10)
   ws_b_ip = cidrhost(data.aws_subnet.forest_b.cidr_block, 20)
 }
 
-# Discover the collector (created per-session by ops-tier) by tag, to get its
-# range-side IP for agent enrollment and the installer mirror. Gated on
-# enable_wazuh_agents; requires ops-tier applied first (enforced ordering).
+# Collector's range-side IP for agent enrollment. Requires ops-tier applied first.
 data "aws_instance" "collector" {
   count = var.enable_wazuh_agents ? 1 : 0
 

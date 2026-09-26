@@ -1,7 +1,5 @@
-# Ops subnet — the only subnet with a path to the internet. Public IPs are NOT
-# auto-assigned; the subnet router gets its single EIP explicitly in the ops-tier
-# root (ADR-0011 §4d). map_public_ip_on_launch stays false so nothing accidentally
-# acquires a public address.
+# Ops subnet — the only subnet with a path to the internet. map_public_ip_on_launch
+# stays false; the router's single EIP is assigned explicitly in ops-tier.
 resource "aws_subnet" "ops" {
   vpc_id                  = aws_vpc.range.id
   cidr_block              = var.ops_subnet_cidr
@@ -16,10 +14,8 @@ resource "aws_subnet" "ops" {
   }
 }
 
-# Victim subnets — no default route (routing.tf), no public IP. A victim has
-# no next-hop off its segment toward the internet (range-safety.md §1-2). The VPC
-# local route still spans the whole CIDR, which is what lets two victim subnets
-# host a cross-subnet forest trust while both stay internet-air-gapped (ADR-0011 §7).
+# Victim subnets — no default route, no public IP (range-safety.md §1-2). The local
+# route still spans the CIDR, which is what lets a cross-subnet forest trust work.
 resource "aws_subnet" "victim" {
   for_each = var.victim_subnets
 

@@ -11,7 +11,7 @@ variable "aws_region" {
 
 # --- Forest identities --------------------------------------------------------
 variable "forest_a_domain" {
-  description = "Root domain of forest A (in victim00). Two separate forest ROOTS joined by a trust — not a parent/child tree (ADR-0011 §7)."
+  description = "Root domain of forest A, in victim00."
   type        = string
   default     = "forest-a.lab"
 }
@@ -45,7 +45,7 @@ variable "forest_b_subnet_name" {
 
 # --- Secrets (no defaults; inject via op run -- ... TF_VAR_*) ------------------
 variable "domain_admin_password" {
-  description = "Built-in Administrator / domain admin password, applied to both forests. Injected from 1Password at apply time; lands in local state (treated sensitive, secrets.md)."
+  description = "Domain admin password, applied to both forests. Inject from 1Password at apply time."
   type        = string
   sensitive   = true
 }
@@ -58,7 +58,7 @@ variable "safe_mode_password" {
 
 # --- Sizing / images ----------------------------------------------------------
 variable "dc_instance_type" {
-  description = "Domain controllers. t3.medium is the standard Windows host (ADR-0011 §2). DCs never run on spot."
+  description = "Instance type for the domain controllers."
   type        = string
   default     = "t3.medium"
 }
@@ -69,7 +69,7 @@ variable "member_instance_type" {
 }
 
 variable "member_use_spot" {
-  description = "Run the two member workstations on spot (stateless; cuts a session from ~$2.72 to ~$2.12/8h, ADR-0011 §7). DCs are never spot — a reclaim tears down the domain/trust."
+  description = "Run the two member workstations on spot. DCs are never spot: a reclaim tears down the trust."
   type        = bool
   default     = false
 }
@@ -99,7 +99,7 @@ variable "windows_root_gb" {
 
 # --- Wazuh agent telemetry ----------------------------------------------------
 variable "enable_wazuh_agents" {
-  description = "Install the Wazuh agent + Sysmon on each victim and enroll to the collector (discovered by tag). Requires ops-tier applied first. Set false to stand the forests up without telemetry."
+  description = "Install the Wazuh agent + Sysmon on each victim and enroll to the collector. Requires ops-tier applied first."
   type        = bool
   default     = true
 }
@@ -111,13 +111,13 @@ variable "wazuh_agent_group" {
 }
 
 variable "wazuh_mirror_port" {
-  description = "Port the collector serves agent installers on (must match ops-tier / range-network when the package mirror is used)."
+  description = "Port the collector serves agent installers on. Must match ops-tier and range-network."
   type        = number
   default     = 8080
 }
 
 variable "install_sysmon" {
-  description = "Install Sysmon (SwiftOnSecurity config) and forward its channel to Wazuh — high-value AD telemetry."
+  description = "Install Sysmon (SwiftOnSecurity config) and forward its channel to Wazuh."
   type        = bool
   default     = true
 }

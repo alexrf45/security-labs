@@ -78,22 +78,15 @@ within 5 minutes`. The volume attachment is created *after* the instance, so the
 waits and resolves the device by NVMe serial. If it times out, confirm the volume is
 `available` (not still held by a previous collector) and in the same AZ, then re-apply.
 
-**Wazuh dashboard won't load**: the stack OOMs on 2 GB; keep the **t4g.medium** default.
-Check `systemctl status wazuh-indexer wazuh-manager wazuh-dashboard` and
-`/var/log/collector-bootstrap.log`. Reinstalling over an existing index is the
-known-fragile path.
+**Wazuh dashboard won't load**: the stack OOMs on 2 GB; keep the **t3.medium** default
+(2 vCPU / 4 GiB). Check `systemctl status wazuh-indexer wazuh-manager wazuh-dashboard`
+and `/var/log/collector-bootstrap.log`. Reinstalling over an existing index is the
+known-fragile path. If it still OOMs, size up — `t3.large` is +$0.0416/hr — rather than
+shrinking the heap further.
 
-**Wazuh won't install at all on the collector (arm64)**: don't debug ARM packaging —
-switch the collector to x86 and move on. `wazuh-install.sh -a -i` is best-tested on
-x86_64, and this box is already below Wazuh's documented 4 vCPU / 8 GiB floor (finding
-C-1), so an aarch64 packaging failure is not worth an evening. Set
-`collector_instance_type = "t3.medium"` and give the collector an x86 Ubuntu AMI — the
-`ubuntu_arm` data source pins `architecture = ["arm64"]`, so it needs an x86 sibling, not
-just a different name filter. **Cost of the switch: $0.008/hr** ($0.0336 → $0.0416),
-about $0.06 per 8-hour session. The router stays `t4g.micro`; Tailscale ships first-class
-arm64. Nothing scenario-facing is ARM — attacker and all victims are x86_64, and the
-collector's architecture doesn't affect its mirror, which serves a Windows `.msi` and an
-`amd64` `.deb` either way.
+**Collector is running the wrong architecture**: it is x86_64 by design. `t4g.*` there
+needs `data.aws_ami.ubuntu_x86` swapped for `ubuntu_arm` as well, and Wazuh's all-in-one
+installer is only well-tested on x86_64 — don't.
 
 **Windows agents never enroll**: victims are air-gapped and can't fetch the installer;
 the install fails soft. Enable the package mirror in both Phase 1 and Phase 2, then
