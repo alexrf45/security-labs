@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# Collector provisioning: single-node Wazuh (manager + indexer + dashboard) with
-# its stateful data relocated onto the persistent SIEM volume, so the detection
-# index and agent registrations survive session teardown
-# (range-safety.md §8). Optionally mirrors agent installers for air-gapped victims.
-#
-# NOTE (to validate in a later sprint): first-run install + migrate is exercised
-# here; re-attaching an EXISTING volume to a FRESH collector reinstalls binaries
-# over pre-existing indexer state and is the fragile path to verify.
-# =============================================================================
 set -euxo pipefail
 exec > >(tee -a /var/log/collector-bootstrap.log) 2>&1
 
@@ -21,23 +11,21 @@ AGENT_PKG="${wazuh_agent_pkg}"
 INDEXER_HEAP="${indexer_heap}"
 SENTINEL="$MOUNT/.wazuh-provisioned"
 
-# --- 1. Wait for, then mount, the persistent SIEM volume ---------------------
-# aws_volume_attachment is created AFTER this instance, so the device appears
-# anywhere from seconds to minutes into boot. Probing once races the attach and,
-# under `set -e`, aborts the whole script — Wazuh then silently never installs.
-# Nitro instances (t4g) ignore the requested /dev/sdf name and expose EBS as NVMe,
-# but carry the volume ID in the device serial, so resolve by serial first and keep
-# path probing as the non-Nitro fallback.
 VOL_ID="${siem_volume_id}"
 VOL_SERIAL="$(printf '%s' "$VOL_ID" | tr -d '-')" # vol-0abc123 -> vol0abc123
 DEV=""
-for _ in $(seq 1 60); do # 60 x 5s = 5 minutes
+for _ in $( # 60 x 5s = 5 minutes
+  seq 1 60
+); do
   while read -r bdev bserial; do
     if [ "$bserial" = "$VOL_SERIAL" ]; then DEV="/dev/$bdev"; fi
   done < <(lsblk -dno NAME,SERIAL)
   if [ -z "$DEV" ]; then
     for c in ${device} /dev/nvme1n1 /dev/xvdf; do
-      if [ -b "$c" ]; then DEV="$c"; break; fi
+      if [ -b "$c" ]; then
+        DEV="$c"
+        break
+      fi
     done
   fi
   if [ -n "$DEV" ]; then break; fi
@@ -50,7 +38,7 @@ fi
 echo "SIEM volume $VOL_ID resolved to $DEV"
 if ! blkid "$DEV"; then mkfs.ext4 -L siem "$DEV"; fi
 mkdir -p "$MOUNT"
-grep -q "LABEL=siem" /etc/fstab || echo "LABEL=siem $MOUNT ext4 defaults,nofail 0 2" >> /etc/fstab
+grep -q "LABEL=siem" /etc/fstab || echo "LABEL=siem $MOUNT ext4 defaults,nofail 0 2" >>/etc/fstab
 mount -a
 mkdir -p "$MOUNT/wazuh-indexer" "$MOUNT/ossec-etc" "$MOUNT/installers"
 
@@ -62,7 +50,7 @@ if [ ! -f /swapfile ]; then
   chmod 600 /swapfile
   mkswap /swapfile
   swapon /swapfile
-  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >>/etc/fstab
 fi
 
 # --- 3. Install Wazuh single-node (first run only) ---------------------------
@@ -80,8 +68,8 @@ if [ ! -f "$SENTINEL" ]; then
   JVM_OPTS=/etc/wazuh-indexer/jvm.options
   if [ -f "$JVM_OPTS" ]; then
     sed -i -E "s/^-Xms.*/-Xms$INDEXER_HEAP/; s/^-Xmx.*/-Xmx$INDEXER_HEAP/" "$JVM_OPTS"
-    grep -qE '^-Xms' "$JVM_OPTS" || echo "-Xms$INDEXER_HEAP" >> "$JVM_OPTS"
-    grep -qE '^-Xmx' "$JVM_OPTS" || echo "-Xmx$INDEXER_HEAP" >> "$JVM_OPTS"
+    grep -qE '^-Xms' "$JVM_OPTS" || echo "-Xms$INDEXER_HEAP" >>"$JVM_OPTS"
+    grep -qE '^-Xmx' "$JVM_OPTS" || echo "-Xmx$INDEXER_HEAP" >>"$JVM_OPTS"
     echo "indexer heap pinned to $INDEXER_HEAP"
   fi
 
@@ -100,23 +88,21 @@ fi
 # Runs every boot so a fresh collector on an existing volume picks up prior state.
 systemctl stop wazuh-dashboard wazuh-manager wazuh-indexer || true
 for pair in "$MOUNT/wazuh-indexer:/var/lib/wazuh-indexer" "$MOUNT/ossec-etc:/var/ossec/etc"; do
-  src="$${pair%%:*}"; dst="$${pair##*:}"
+  src="$${pair%%:*}"
+  dst="$${pair##*:}"
   mkdir -p "$dst"
-  grep -q " $dst " /etc/fstab || echo "$src $dst none bind,nofail 0 0" >> /etc/fstab
+  grep -q " $dst " /etc/fstab || echo "$src $dst none bind,nofail 0 0" >>/etc/fstab
   mountpoint -q "$dst" || mount --bind "$src" "$dst"
 done
 chown -R wazuh-indexer:wazuh-indexer /var/lib/wazuh-indexer || true
 systemctl daemon-reload
 systemctl enable --now wazuh-indexer wazuh-manager wazuh-dashboard || true
 
-# --- 5. Optional: mirror agent installers for air-gapped victims -------------
 if [ "$MIRROR" = "true" ]; then
   cd "$MOUNT/installers"
-  # Windows agent MSI (victims cannot reach the internet to fetch it themselves).
-  [ -f "wazuh-agent.msi" ] || \
+  [ -f "wazuh-agent.msi" ] ||
     curl -fsSL "https://packages.wazuh.com/4.x/windows/wazuh-agent-$AGENT_PKG.msi" -o wazuh-agent.msi
-  # Linux agent (deb) for future Linux victims.
-  [ -f "wazuh-agent.deb" ] || \
+  [ -f "wazuh-agent.deb" ] ||
     curl -fsSL "https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_$${AGENT_PKG}_amd64.deb" -o wazuh-agent.deb || true
   if [ "$SERVE_SYSMON" = "true" ]; then
     [ -f "Sysmon.zip" ] || curl -fsSL "https://download.sysinternals.com/files/Sysmon.zip" -o Sysmon.zip || true
@@ -124,8 +110,7 @@ if [ "$MIRROR" = "true" ]; then
       "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml" \
       -o sysmonconfig.xml || true
   fi
-  # Serve the installer dir over one port (SG/NACL restrict the source to victim).
-  cat > /etc/systemd/system/agent-mirror.service <<UNIT
+  cat >/etc/systemd/system/agent-mirror.service <<UNIT
 [Unit]
 Description=Wazuh agent installer mirror
 After=network-online.target

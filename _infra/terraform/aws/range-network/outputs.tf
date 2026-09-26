@@ -1,4 +1,3 @@
-# For humans only. Downstream roots rediscover all of this by tag (range-safety.md §9).
 output "vpc_id" {
   description = "Range VPC ID."
   value       = aws_vpc.range.id

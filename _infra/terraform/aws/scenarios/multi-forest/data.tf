@@ -1,4 +1,3 @@
-# Discover shared plumbing by tag. Two victim subnets, one per forest.
 data "aws_vpc" "range" {
   filter {
     name   = "tag:Discovery"
@@ -34,7 +33,6 @@ data "aws_subnet" "forest_b" {
   }
 }
 
-# All four victims share the victim SG, which is what lets the forest trust work.
 data "aws_security_group" "victim" {
   vpc_id = data.aws_vpc.range.id
   filter {
@@ -61,14 +59,12 @@ data "aws_ami" "windows" {
 }
 
 locals {
-  # Static IPs, since VPC DNS is off. .10 = DC, .20 = workstation.
   dc_a_ip = cidrhost(data.aws_subnet.forest_a.cidr_block, 10)
   ws_a_ip = cidrhost(data.aws_subnet.forest_a.cidr_block, 20)
   dc_b_ip = cidrhost(data.aws_subnet.forest_b.cidr_block, 10)
   ws_b_ip = cidrhost(data.aws_subnet.forest_b.cidr_block, 20)
 }
 
-# Collector's range-side IP for agent enrollment. Requires ops-tier applied first.
 data "aws_instance" "collector" {
   count = var.enable_wazuh_agents ? 1 : 0
 

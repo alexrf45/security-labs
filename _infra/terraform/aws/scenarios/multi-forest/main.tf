@@ -1,5 +1,4 @@
 locals {
-  # IMDSv2 required, hop limit 1, no instance profile (range-safety.md §5).
   imdsv2 = {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
@@ -7,10 +6,9 @@ locals {
   }
 }
 
-# ============================ Forest A (victim00) ==============================
 resource "aws_instance" "dc_a" {
   ami                         = data.aws_ami.windows.id
-  instance_type               = var.dc_instance_type # DCs never spot (§2 spot policy)
+  instance_type               = var.dc_instance_type
   subnet_id                   = data.aws_subnet.forest_a.id
   private_ip                  = local.dc_a_ip
   vpc_security_group_ids      = [data.aws_security_group.victim.id]
@@ -35,14 +33,13 @@ resource "aws_instance" "dc_a" {
     safe_mode_password    = var.safe_mode_password
     peer_domain           = var.forest_b_domain
     peer_dc_ip            = local.dc_b_ip
-    create_trust          = false # trust is created from DC-B
+    create_trust          = false
     wazuh_manager_ip      = local.wazuh_manager_ip
     wazuh_mirror_port     = var.wazuh_mirror_port
     wazuh_agent_group     = var.wazuh_agent_group
     install_sysmon        = var.install_sysmon
   })
 
-  # Required: the provider default updates user_data in place without re-running it.
   user_data_replace_on_change = true
 
   tags = {
@@ -104,7 +101,6 @@ resource "aws_instance" "ws_a" {
   }
 }
 
-# ============================ Forest B (victim01) ==============================
 resource "aws_instance" "dc_b" {
   ami                         = data.aws_ami.windows.id
   instance_type               = var.dc_instance_type
@@ -125,7 +121,6 @@ resource "aws_instance" "dc_b" {
     encrypted   = true
   }
 
-  # DC-B carries the trust bootstrap (create_trust = true).
   user_data = templatefile("${path.module}/scripts/dc.ps1.tftpl", {
     domain                = var.forest_b_domain
     netbios               = var.forest_b_netbios

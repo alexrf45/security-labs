@@ -1,5 +1,4 @@
 locals {
-  # IMDSv2 required, hop limit 1, no instance profile (range-safety.md §5).
   imdsv2 = {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
@@ -9,8 +8,6 @@ locals {
   ssh_public_key = trimspace(var.ssh_public_key)
 }
 
-# --- Operator SSH key ---------------------------------------------------------
-# Public half only; the private key stays in 1Password.
 resource "aws_key_pair" "ops" {
   count = local.ssh_public_key != "" ? 1 : 0
 
@@ -35,7 +32,6 @@ check "operator_ssh_key" {
   }
 }
 
-# --- Tailscale subnet router --------------------------------------------------
 resource "aws_instance" "router" {
   ami                    = data.aws_ami.ubuntu_arm.id
   instance_type          = var.router_instance_type
@@ -43,7 +39,6 @@ resource "aws_instance" "router" {
   vpc_security_group_ids = [data.aws_security_group.router.id]
   key_name               = local.ssh_key_name
 
-  # Subnet routers must forward traffic for other addresses.
   source_dest_check = false
 
   metadata_options {
@@ -53,7 +48,7 @@ resource "aws_instance" "router" {
   }
 
   root_block_device {
-    volume_type = "gp3" # never gp2
+    volume_type = "gp3"
     volume_size = var.router_root_gb
     encrypted   = true
   }
@@ -64,7 +59,6 @@ resource "aws_instance" "router" {
     hostname           = var.tailnet_hostname
   })
 
-  # Required: the provider default updates user_data in place without re-running it.
   user_data_replace_on_change = true
 
   tags = {
@@ -74,7 +68,6 @@ resource "aws_instance" "router" {
   }
 }
 
-# The one public IPv4 in the whole range, present only while a session runs. $0.005/hr.
 resource "aws_eip" "router" {
   instance = aws_instance.router.id
   domain   = "vpc"
@@ -84,7 +77,6 @@ resource "aws_eip" "router" {
   }
 }
 
-# --- Attacker (Kali) ----------------------------------------------------------
 resource "aws_instance" "attacker" {
   ami                         = data.aws_ami.kali.id
   instance_type               = var.attacker_instance_type
@@ -121,7 +113,6 @@ resource "aws_instance" "attacker" {
   }
 }
 
-# --- Collector / SIEM ---------------------------------------------------------
 resource "aws_instance" "collector" {
   ami                         = data.aws_ami.ubuntu_x86.id
   instance_type               = var.collector_instance_type
@@ -163,12 +154,10 @@ resource "aws_instance" "collector" {
   }
 }
 
-# Attach the persistent SIEM volume discovered from range-network.
 resource "aws_volume_attachment" "siem" {
   device_name = "/dev/sdf"
   volume_id   = data.aws_ebs_volume.siem.id
   instance_id = aws_instance.collector.id
 
-  # Detach without destroying the volume.
   stop_instance_before_detaching = true
 }

@@ -1,6 +1,3 @@
-# --- Discover shared plumbing by TAG, never via terraform_remote_state ---------
-# range-safety.md §9: this root must never hold a reader for the shared root's state.
-
 data "aws_vpc" "range" {
   filter {
     name   = "tag:Discovery"

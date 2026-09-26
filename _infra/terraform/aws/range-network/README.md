@@ -1,15 +1,5 @@
 # `range-network` — shared, long-lived range plumbing
 
-The one long-lived root: shared network fabric plus the persistent SIEM volume. Standing
-cost is storage-only (**≈ $2.70/mo**). Applied **once** and left up; per-session roots
-discover it by tag.
-
-Design rationale: [ADR-0011 §4–5](../../../../_docs/decisions/0011-aws-provider-and-range-topology.md).
-Isolation invariants: [`range-safety.md`](../../../../.claude/rules/range-safety.md).
-
-> **State:** local, holds plaintext secrets, gitignored. **Claude runs offline checks
-> only**; the user runs `apply`/`destroy` under `op run --`.
-
 ## What it creates
 
 | Resource | Cost |
@@ -35,7 +25,6 @@ $ op run -- terraform apply
 ## Inputs and outputs
 
 Full tables: [range reference](../../../../_docs/reference/aws-range-reference.md#range-network).
-`variables.tf` is the source of truth. The inputs that carry a decision:
 
 | Input | Notes |
 | --- | --- |
@@ -44,12 +33,3 @@ Full tables: [range reference](../../../../_docs/reference/aws-range-reference.m
 | `enable_agent_package_mirror` | Opens the one victim→collector port. Off by default; must also be set in `ops-tier`. |
 
 Outputs are for humans and docs only — downstream roots rediscover everything by tag.
-
-## Operating notes
-
-- `destroy` refuses while the SIEM volume has `prevent_destroy`. That is the decommission
-  gate, not a bug.
-- The account baseline (default EBS encryption, snapshot block-public-access, regional
-  IMDSv2 defaults) is **not** managed here. It is set out of band per the runbook's
-  Phase 0; `account-baseline-check.tf` only warns if EBS encryption drifts off.
-- Adding a victim subnet is a `victim_subnets` key. Never add a route to one.

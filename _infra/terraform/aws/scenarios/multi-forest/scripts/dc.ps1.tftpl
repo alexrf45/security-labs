@@ -1,26 +1,10 @@
 <powershell>
-# ============================================================================
-# Domain controller bootstrap for a forest ROOT.
-# Runs via EC2 user_data with <persist>true</persist> so it re-executes across the
-# multiple reboots that forest promotion causes. Every step is guarded to be
-# idempotent: promotion happens once, the conditional forwarder is added once, and
-# (DC-B only) the trust task is registered once.
-# SSM is unavailable in a no-egress victim subnet (§6), so this is the only
-# post-boot command channel. Windows KMS activation still works via the link-local
-# 169.254.169.250/.251:1688 endpoints with no internet route (§ Context).
-# ============================================================================
 $ErrorActionPreference = "Stop"
 Start-Transcript -Path "C:\bootstrap-dc.log" -Append
 
 $adds = Get-WindowsFeature -Name AD-Domain-Services
 
 if (-not $adds.Installed) {
-    # --- Built-in Administrator password (pre-promotion boot only) ----------
-    # The local account becomes the DOMAIN Administrator at promotion and keeps this
-    # password. On every LATER boot the local WinNT:// provider no longer addresses
-    # it and SetPassword throws; with $ErrorActionPreference = "Stop" that used to
-    # abort the script before the conditional forwarder and the trust task were
-    # registered. Guarded to the first boot, and non-fatal even there.
     try {
         $admin = [ADSI]"WinNT://./Administrator,user"
         $admin.SetPassword("${domain_admin_password}")
@@ -29,8 +13,6 @@ if (-not $adds.Installed) {
         Write-Output "Could not set the local Administrator password: $_"
     }
 
-    # First boot: promote this host to a new forest root. Reboots on completion,
-    # after which <persist> re-runs this script and falls through to the guards below.
     Install-WindowsFeature -Name AD-Domain-Services, DNS -IncludeManagementTools
     $smpw = ConvertTo-SecureString "${safe_mode_password}" -AsPlainText -Force
     Install-ADDSForest `
@@ -43,31 +25,22 @@ if (-not $adds.Installed) {
     return
 }
 
-# --- Post-promotion steps (subsequent boots) -------------------------------
 Import-Module DnsServer -ErrorAction SilentlyContinue
 
-# Conditional forwarder so this forest can resolve the peer forest without VPC DNS.
 if (-not (Get-DnsServerZone -Name "${peer_domain}" -ErrorAction SilentlyContinue)) {
     Add-DnsServerConditionalForwarderZone -Name "${peer_domain}" -MasterServers "${peer_dc_ip}"
 }
 
 %{ if create_trust ~}
-# --- Two-way forest trust (DC-B only) --------------------------------------
-# Trust creation can only succeed once BOTH forests exist and resolve each other.
-# A self-deleting scheduled task polls for the peer DC's LDAP, creates a bidirectional
-# forest trust using the peer's admin credentials (this creates both sides), then
-# unregisters itself — keeping the scenario a single apply with no interactive step.
-# If this proves flaky in practice, run the runbook snippet in README.md instead.
 $trustScript = @'
 $ErrorActionPreference = "Stop"
 Start-Transcript -Path "C:\trust-task.log" -Append
 $peer   = "${peer_domain}"
 $peerIp = "${peer_dc_ip}"
-# Wait until the peer DC answers LDAP.
 while (-not (Test-NetConnection -ComputerName $peerIp -Port 389 -InformationLevel Quiet)) {
     Start-Sleep -Seconds 30
 }
-Start-Sleep -Seconds 60  # let the peer settle after its own promotion
+Start-Sleep -Seconds 60
 $localForest = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()
 $ctx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
     "Forest", $peer, "$peer\Administrator", "${domain_admin_password}")
@@ -92,17 +65,11 @@ if (-not (Test-Path $trustPath)) {
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
     Register-ScheduledTask -TaskName "BootstrapForestTrust" -Action $action `
         -Trigger $trigger -Principal $principal
-    # Kick it now too, so a fresh apply does not wait for the next reboot.
     Start-ScheduledTask -TaskName "BootstrapForestTrust"
 }
 %{ endif ~}
 
 %{ if wazuh_manager_ip != "" ~}
-# --- Wazuh agent + Sysmon: telemetry to the collector ( one-way) ---
-# Installers are pulled from the collector's local mirror (victims have no internet
-# route); if the mirror/network path is not enabled the download fails and this block
-# is skipped without failing the boot — telemetry simply starts once the package path
-# (mirror flag, or a baked AMI) is in place. Validate against real boot in a later sprint.
 try {
     $mgr    = "${wazuh_manager_ip}"
     $mirror = "http://${wazuh_manager_ip}:${wazuh_mirror_port}"

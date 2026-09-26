@@ -36,7 +36,6 @@ variable "victim_subnets" {
     victim01 = "10.40.51.0/24"
   }
 
-  # nacl.tf numbers these 100+i; past 99 they collide with rule 200.
   validation {
     condition     = length(var.victim_subnets) <= 99
     error_message = "At most 99 victim subnets: nacl.tf numbers them 100+i, which must stay below rule 200."
@@ -54,7 +53,6 @@ variable "telemetry_ports" {
   type        = list(number)
   default     = [1514, 1515]
 
-  # nacl.tf numbers these 200+j; rule 250 is the mirror, so 49 is the cap.
   validation {
     condition     = length(var.telemetry_ports) <= 49
     error_message = "At most 49 telemetry ports: nacl.tf numbers them 200+j, which must stay below rule 250 (the package mirror)."

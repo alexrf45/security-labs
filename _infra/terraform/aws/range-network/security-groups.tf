@@ -1,6 +1,3 @@
-# Stateful isolation layer 1. Directionality is enforced by referencing SG IDs, not CIDRs.
-
-# --- Tailscale subnet router (ops) ---------------------------------------------
 resource "aws_security_group" "router" {
   name        = "${var.project}-router"
   description = "Tailscale subnet router: the single human entry path (range-safety.md)."
@@ -36,7 +33,6 @@ resource "aws_vpc_security_group_egress_rule" "router_all" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
-# --- Attacker box (ops) --------------------------------------------------------
 resource "aws_security_group" "attacker" {
   name        = "${var.project}-attacker"
   description = "Kali attacker box; reached over Tailscale via the router, bridges into victim nets."
@@ -63,7 +59,6 @@ resource "aws_vpc_security_group_egress_rule" "attacker_all" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
-# --- Collector / SIEM (ops) ----------------------------------------------------
 resource "aws_security_group" "collector" {
   name        = "${var.project}-collector"
   description = "Defensive collector/SIEM. Receives telemetry from victim hosts; never initiates into them."
@@ -105,7 +100,6 @@ resource "aws_vpc_security_group_ingress_rule" "collector_dashboard" {
   cidr_ipv4         = var.ops_subnet_cidr
 }
 
-# No egress rule toward the victim SG: the collector never initiates into a victim net.
 resource "aws_vpc_security_group_egress_rule" "collector_updates_https" {
   security_group_id = aws_security_group.collector.id
   description       = "Package updates (HTTPS) via the ops route"
@@ -124,7 +118,6 @@ resource "aws_vpc_security_group_egress_rule" "collector_updates_http" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
-# --- Victim hosts (victim subnets) ---------------------------------------------
 resource "aws_security_group" "victim" {
   name        = "${var.project}-victim"
   description = "Victims. Reachable only from the attacker; egress only to the collector (telemetry) and to peer victims (forest trust)."
@@ -144,7 +137,6 @@ resource "aws_vpc_security_group_ingress_rule" "victim_from_attacker" {
   referenced_security_group_id = aws_security_group.attacker.id
 }
 
-# Permit-all intra-SG, so a cross-subnet forest trust works.
 resource "aws_vpc_security_group_ingress_rule" "victim_intra" {
   security_group_id            = aws_security_group.victim.id
   description                  = "Victim-to-victim (forest trust, lateral movement)"
@@ -170,8 +162,6 @@ resource "aws_vpc_security_group_egress_rule" "victim_intra" {
   referenced_security_group_id = aws_security_group.victim.id
 }
 
-# --- Opt-in agent package mirror (default off) ---------------------------------
-# Victim-initiated only.
 resource "aws_vpc_security_group_egress_rule" "victim_pull_mirror" {
   count = var.enable_agent_package_mirror ? 1 : 0
 
@@ -194,13 +184,9 @@ resource "aws_vpc_security_group_ingress_rule" "collector_serve_mirror" {
   referenced_security_group_id = aws_security_group.victim.id
 }
 
-# --- VPC default security group: adopted and emptied (FSBP/CIS EC2.2) ----------
-# An instance launched without explicit vpc_security_group_ids lands here silently.
-# Omitting all ingress/egress blocks revokes every rule. Keep it empty.
 resource "aws_default_security_group" "range" {
   vpc_id = aws_vpc.range.id
 
-  # No ingress/egress blocks == every rule revoked.
 
   tags = {
     Name = "${var.project}-default-sg-locked"

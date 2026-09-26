@@ -9,7 +9,6 @@ variable "aws_region" {
   default = "us-east-1"
 }
 
-# --- Forest identities --------------------------------------------------------
 variable "forest_a_domain" {
   description = "Root domain of forest A, in victim00."
   type        = string
@@ -32,7 +31,6 @@ variable "forest_b_netbios" {
   default = "FORESTB"
 }
 
-# --- Which victim subnets to land in (discovered by name) ------------------
 variable "forest_a_subnet_name" {
   type    = string
   default = "victim00"
@@ -43,7 +41,6 @@ variable "forest_b_subnet_name" {
   default = "victim01"
 }
 
-# --- Secrets (no defaults; inject via op run -- ... TF_VAR_*) ------------------
 variable "domain_admin_password" {
   description = "Domain admin password, applied to both forests. Inject from 1Password at apply time."
   type        = string
@@ -56,7 +53,6 @@ variable "safe_mode_password" {
   sensitive   = true
 }
 
-# --- Sizing / images ----------------------------------------------------------
 variable "dc_instance_type" {
   description = "Instance type for the domain controllers."
   type        = string
@@ -97,7 +93,6 @@ variable "windows_root_gb" {
   default = 50
 }
 
-# --- Wazuh agent telemetry ----------------------------------------------------
 variable "enable_wazuh_agents" {
   description = "Install the Wazuh agent + Sysmon on each victim and enroll to the collector. Requires ops-tier applied first."
   type        = bool

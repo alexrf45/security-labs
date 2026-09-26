@@ -5,8 +5,6 @@ Per-session; destroyed at teardown.
 
 Design rationale: [ADR-0011 §7](../../../../../_docs/decisions/0011-aws-provider-and-range-topology.md).
 
-> **State:** local, sensitive, gitignored, separate blast radius from `range-network`.
-> **Claude runs offline checks only**; the user runs `apply`/`destroy` under `op run --`.
 
 ## Topology
 
@@ -14,11 +12,6 @@ Design rationale: [ADR-0011 §7](../../../../../_docs/decisions/0011-aws-provide
 | --- | --- | --- | --- |
 | A (root) | `forest-a.lab` | victim00 `10.40.50.0/24` | DC-A (t3.medium Win), WS-A |
 | B (root) | `forest-b.lab` | victim01 `10.40.51.0/24` | DC-B (t3.medium Win), WS-B |
-
-Inter-forest traffic rides the VPC `local` route; both subnets stay internet-air-gapped
-and **no `range-network` change is needed**. Cross-forest DNS uses DC conditional
-forwarders, since VPC DNS is disabled. Every host: IMDSv2 hop-limit-1, no instance
-profile, no public IP, gp3 encrypted root.
 
 ## Cost
 
@@ -56,34 +49,6 @@ $ op run -- env \
 Promotion and trust creation span multiple reboots — allow **10–20 minutes**. Verify with
 `Get-ADTrust -Filter *` on DC-B.
 
-## Trust bootstrap
-
-Each DC self-promotes from `user_data` (`Install-ADDSForest`, `<persist>true</persist>` to
-survive the promotion reboots, every step idempotent). The trust is created from **DC-B**
-by a self-deleting scheduled task that waits for DC-A's LDAP, creates a bidirectional
-forest trust with the peer's admin credentials, then unregisters itself. SSM is unavailable
-in a no-egress subnet, so there is no other post-boot command channel.
-
-**Not yet validated against real boot behaviour.** If the task proves flaky, disable it and
-run this once on DC-B after both DCs are up:
-
-```powershell
-$peer = "forest-a.lab"
-$localForest  = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()
-$ctx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
-    "Forest", $peer, "$peer\Administrator", "<domain_admin_password>")
-$remoteForest = [System.DirectoryServices.ActiveDirectory.Forest]::GetForest($ctx)
-$localForest.CreateTrustRelationship($remoteForest, "Bidirectional")
-```
-
-## Telemetry
-
-With `enable_wazuh_agents = true` (default) each victim installs the Wazuh agent and Sysmon
-and enrolls to the collector, discovered by tag (`Role=collector`). Because victims are
-air-gapped the installers come from the collector's mirror, so this needs
-`enable_agent_package_mirror = true` on both `ops-tier` and `range-network`. Without it the
-download fails softly and the forests still stand up. Set `enable_wazuh_agents = false` to
-skip telemetry entirely.
 
 ## Inputs and outputs
 

@@ -1,19 +1,9 @@
-#cloud-config
-# Tailscale subnet router — the single human entry path (range-safety.md §3).
-# It advertises the OPS subnet ONLY and never a victim CIDR, so
-# the tailnet (and therefore the workstation, 1Password, and the age key) has no
-# route into a victim net. --accept-dns=false because VPC DNS is disabled and the
-# box uses the public resolvers from the DHCP option set.
 package_update: true
 write_files:
   - path: /etc/sysctl.d/99-tailscale.conf
     content: |
       net.ipv4.ip_forward = 1
       net.ipv6.conf.all.forwarding = 1
-  # The auth key goes to a 0600 file on tmpfs rather than onto the `tailscale up`
-  # command line, because cloud-init echoes every runcmd into
-  # /var/log/cloud-init-output.log (0644) and argv is readable in `ps` by any local
-  # user. `tailscale up --auth-key` takes a "file:" prefix for exactly this purpose.
   - path: /run/tailscale-authkey
     permissions: '0600'
     owner: 'root:root'
@@ -22,5 +12,4 @@ runcmd:
   - sysctl -p /etc/sysctl.d/99-tailscale.conf
   - curl -fsSL https://tailscale.com/install.sh | sh
   - tailscale up --auth-key=file:/run/tailscale-authkey --advertise-routes=${ops_cidr} --hostname=${hostname} --accept-dns=false --ssh
-  # /run is tmpfs so it never hits disk, but drop it as soon as the node is up.
   - rm -f /run/tailscale-authkey

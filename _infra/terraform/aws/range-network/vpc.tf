@@ -1,5 +1,3 @@
-# VPC DNS support DISABLED (range-safety.md §10): AmazonProvidedDNS is reachable from a
-# no-egress subnet and cannot be filtered or logged. Never re-enable it.
 resource "aws_vpc" "range" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = false
@@ -8,11 +6,10 @@ resource "aws_vpc" "range" {
 
   tags = {
     Name      = "${var.project}-vpc"
-    Discovery = "range-vpc" # ops-tier / scenarios look this up by tag
+    Discovery = "range-vpc"
   }
 }
 
-# Public resolvers, since VPC DNS is off. Usable from ops only; victims have no route.
 resource "aws_vpc_dhcp_options" "range" {
   domain_name_servers = var.public_dns_resolvers
 
@@ -26,7 +23,6 @@ resource "aws_vpc_dhcp_options_association" "range" {
   dhcp_options_id = aws_vpc_dhcp_options.range.id
 }
 
-# Reachable only from the ops route table.
 resource "aws_internet_gateway" "range" {
   vpc_id = aws_vpc.range.id
 

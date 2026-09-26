@@ -1,12 +1,7 @@
 <powershell>
-# Member workstation: point DNS at its forest's DC, wait for the domain, then join.
-# Idempotent: skips the join if already a domain member.
 $ErrorActionPreference = "Stop"
 Start-Transcript -Path "C:\bootstrap-member.log" -Append
 
-# Local Administrator password, for console/RDP logon before the domain join lands.
-# Non-fatal: a throw here (password policy, a provider hiccup) must not abort the
-# DNS configuration and domain join below, which are what the scenario needs.
 try {
     $admin = [ADSI]"WinNT://./Administrator,user"
     $admin.SetPassword("${domain_admin_password}")
@@ -15,7 +10,6 @@ try {
     Write-Output "Could not set the local Administrator password: $_"
 }
 
-# DNS must be the DC (VPC DNS is disabled, §4b).
 Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | ForEach-Object {
     Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses "${dc_ip}"
 }
@@ -32,11 +26,6 @@ if (-not $cs.PartOfDomain) {
 }
 
 %{ if wazuh_manager_ip != "" ~}
-# --- Wazuh agent + Sysmon: telemetry to the collector ( one-way) ---
-# Installers are pulled from the collector's local mirror (victims have no internet
-# route); if the mirror/network path is not enabled the download fails and this block
-# is skipped without failing the boot — telemetry simply starts once the package path
-# (mirror flag, or a baked AMI) is in place. Validate against real boot in a later sprint.
 try {
     $mgr    = "${wazuh_manager_ip}"
     $mirror = "http://${wazuh_manager_ip}:${wazuh_mirror_port}"

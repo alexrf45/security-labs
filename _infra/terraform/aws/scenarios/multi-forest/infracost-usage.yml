@@ -1,5 +1,3 @@
-# infracost cannot infer the OS from an AMI ID and otherwise prices these Windows hosts
-# as Linux (a ~44% under-estimate per host). Pass this file to the cost gate:
 #   infracost breakdown --path . --usage-file infracost-usage.yml
 version: 0.1
 resource_usage:

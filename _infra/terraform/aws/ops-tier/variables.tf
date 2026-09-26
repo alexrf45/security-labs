@@ -163,7 +163,6 @@ variable "attacker_rdp_password" {
   default     = ""
 }
 
-# --- Operator SSH access ------------------------------------------------------
 variable "ssh_public_key" {
   description = "OpenSSH public key installed on all three ops hosts. Public half only, so deliberately not sensitive."
   type        = string

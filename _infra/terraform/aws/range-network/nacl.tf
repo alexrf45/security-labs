@@ -1,11 +1,6 @@
-# Victim network ACL — stateless isolation layer 2, load-bearing (range-safety.md §11).
-# Egress toward ops is limited to telemetry ports, ephemeral return traffic and ICMP.
-# Do not widen it. Victim<->victim is permitted in full so a forest trust works.
-
 locals {
   victim_cidrs = values(var.victim_subnets)
 
-  # All from every victim CIDR, and all from ops. Which ops HOST may initiate is an SG call.
   victim_nacl_ingress = concat(
     [for i, c in local.victim_cidrs : {
       rule_no    = 100 + i
@@ -27,7 +22,6 @@ locals {
     }],
   )
 
-  # All to every victim CIDR; to ops, only telemetry + ephemeral. Rest is implicit deny.
   victim_nacl_egress = concat(
     [for i, c in local.victim_cidrs : {
       rule_no    = 100 + i
@@ -50,7 +44,7 @@ locals {
     [
       {
         rule_no    = 300
-        protocol   = "6" # tcp ephemeral (attacker return)
+        protocol   = "6"
         cidr_block = var.ops_subnet_cidr
         from_port  = 1024
         to_port    = 65535
@@ -59,21 +53,20 @@ locals {
       },
       {
         rule_no    = 310
-        protocol   = "17" # udp ephemeral (attacker return)
+        protocol   = "17"
         cidr_block = var.ops_subnet_cidr
         from_port  = 1024
         to_port    = 65535
         icmp_type  = null
         icmp_code  = null
       },
-      # ICMP echo replies to the attacker; stateless, so it needs its own rule.
       {
         rule_no    = 320
-        protocol   = "1" # icmp
+        protocol   = "1"
         cidr_block = var.ops_subnet_cidr
         from_port  = null
         to_port    = null
-        icmp_type  = -1 # wildcard type; code must also be -1
+        icmp_type  = -1
         icmp_code  = -1
       },
     ],
@@ -119,7 +112,6 @@ resource "aws_network_acl_rule" "victim_egress" {
   icmp_code      = each.value.icmp_code
 }
 
-# Opt-in mirror allowance: one extra victim -> ops port (range-safety.md §6).
 resource "aws_network_acl_rule" "victim_egress_mirror" {
   count = var.enable_agent_package_mirror ? 1 : 0
 

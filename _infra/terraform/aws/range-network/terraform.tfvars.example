@@ -1,17 +1,15 @@
-# Copy to terraform.tfvars and SOPS-encrypt before committing (secrets.md).
+# Copy to terraform.tfvars and SOPS-encrypt before committing
 # terraform.tfvars is gitignored; this .example is not and must hold no secrets.
 
 # project           = "security-labs"
 # aws_region        = "us-east-1"
 # availability_zone = "us-east-1a"
 
-# Budget alarm recipients (50/80/100 percent of the ceiling). Your own address;
-# not committed to the repo. Leave unset to create the budget without alarms.
 # budget_alert_emails = ["you@example.com"]
 
-# Add more detonation subnets as scenarios grow (mnemonic 5N = detonation):
-# detonation_subnets = {
-#   det00 = "10.40.50.0/24"
-#   det01 = "10.40.51.0/24"
-#   det02 = "10.40.52.0/24"
+# Add more victim subnets as scenarios grow (mnemonic 5N = victimonation):
+# victim_subnets = {
+#   victim00 = "10.40.50.0/24"
+#   victim01 = "10.40.51.0/24"
+#   victim02 = "10.40.52.0/24"
 # }

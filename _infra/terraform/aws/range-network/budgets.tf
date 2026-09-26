@@ -1,6 +1,3 @@
-# A budget with notifications is mandatory (cost-guardrails.md rule 4). Thresholds are
-# 50/80/100 percent of the ceiling. Do NOT make the notifications conditional: an empty
-# subscriber list yields a budget that alerts nobody and looks correct in the console.
 locals {
   budget_notifications = [
     { threshold = 50, notification_type = "ACTUAL" },
