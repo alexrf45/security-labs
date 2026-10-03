@@ -30,14 +30,20 @@ Applied at the start of a session and destroyed at teardown. Discovers
 ## Usage
 
 ```console
-$ op run -- terraform init
-$ op run -- env \
-    TF_VAR_tailscale_auth_key="op://Security/tailscale-range-router/authkey" \
-    TF_VAR_attacker_rdp_password="op://Security/scrt-attacker/password" \
-    TF_VAR_ssh_public_key="op://Security/security_labs/public key" \
-    terraform apply
+$ cat .envrc          # gitignored; 1Password references only, never values
+export TF_VAR_tailscale_auth_key="op://Security/tailscale-range-router/authkey"
+export TF_VAR_attacker_rdp_password="op://Security/scrt-attacker/password"
+export TF_VAR_ssh_public_key="op://Security/security_labs/public key"
+export TF_VAR_wazuh_admin_password="op://Security/wazuh-dashboard/password"
+$ direnv allow
+$ op plugin run -- terraform init
+$ op run -- op plugin run -- terraform apply
 $ terraform output ssh
 ```
+
+Don't put the references in the same command as `op run` (for example,
+`op run -- env TF_VAR_x="op://…" terraform apply`). `op run` never sees them, and they
+reach Terraform as literal strings.
 
 Add `TF_VAR_enable_agent_package_mirror=true` if it is enabled in `range-network`.
 
@@ -45,7 +51,7 @@ Add `TF_VAR_enable_agent_package_mirror=true` if it is enabled in `range-network
 
 | Host | Access |
 | --- | --- |
-| router | `ssh ubuntu@<router_private_ip>`, or `tailscale ssh range-router` |
+| router | `tailscale ssh ubuntu@range-router` (edge subnet, not advertised) |
 | attacker | `ssh kali@<attacker_private_ip>`; RDP `:3389` for i3 |
 | collector | `ssh ubuntu@<collector_private_ip>`; dashboard `https://<collector_private_ip>` |
 

@@ -14,7 +14,8 @@ Provider pinned `hashicorp/aws = 6.66.0` across all roots; `terraform >= 1.9.0`.
 | Subnet | Name/tag | CIDR | Default route | Public IP | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | VPC | — | `10.40.0.0/16` | — | — | DNS **disabled** (invariant #10); DHCP hands out public resolvers |
-| ops | `ops` | `10.40.10.0/24` | → Internet Gateway | router EIP only | router, attacker, collector |
+| edge | `edge` | `10.40.1.0/28` | → Internet Gateway | router EIP | router only; NATs the ops subnet |
+| ops | `ops` | `10.40.10.0/24` | → router ENI (per session, owned by `ops-tier`) | **none** | attacker, collector |
 | victim00 | `victim00` | `10.40.50.0/24` | **none** | **none** | forest A victims |
 | victim01 | `victim01` | `10.40.51.0/24` | **none** | **none** | forest B victims |
 | victimNN | `victimNN` | `10.40.5N.0/24` | none | none | future scenarios (add to `victim_subnets`) |
@@ -82,7 +83,9 @@ the table's "internet" rows apply only to the ops subnet.
 | any | any | attacker → victim | victim SG (from attacker SG) + NACL ingress 200 | attacker probes victims on any port |
 | any | any | victim ↔ victim | victim SG (self-ref) + NACL 100+i | **AD trust & lateral movement** (see below) |
 | 80, 443 | TCP | collector → internet | collector SG egress | package updates only (collector never initiates into victim) |
-| any | any | router/attacker → internet | router/attacker SG egress | egress via the ops route / tool pulls |
+| 53 | UDP/TCP | collector → public resolvers | collector SG egress | DNS (VPC DNS is off) |
+| any | any | router/attacker → internet | router/attacker SG egress | ops hosts egress through the router NAT; tool pulls |
+| any | any | router → attacker; 22, 443 router → collector | attacker/collector SG ingress (router SG ref) | operator access over Tailscale, which masquerades to the router's edge IP |
 | 1688 | TCP | instance → `169.254.169.250/.251` | link-local (no SG/route) | Windows KMS activation (works in a no-egress subnet) |
 | — | — | instance → `169.254.169.254` | link-local, IMDSv2 hop-limit 1 | instance metadata / user-data |
 
@@ -150,7 +153,8 @@ Sensitive vars have **no default** (or empty) and are injected at apply from 1Pa
 | `aws_region` | string | `us-east-1` | |
 | `availability_zone` | string | `us-east-1a` | SIEM volume + all instances share it |
 | `vpc_cidr` | string | `10.40.0.0/16` | |
-| `ops_subnet_cidr` | string | `10.40.10.0/24` | only routed subnet |
+| `ops_subnet_cidr` | string | `10.40.10.0/24` | default route via the router ENI, added by `ops-tier` |
+| `edge_subnet_cidr` | string | `10.40.1.0/28` | router only; the one IGW-routed subnet |
 | `victim_subnets` | map(string) | `{victim00=…50.0/24, victim01=…51.0/24}` | add more for new scenarios |
 | `public_dns_resolvers` | list(string) | `["1.1.1.1","1.0.0.1"]` | DHCP resolvers (VPC DNS is off) |
 | `telemetry_ports` | list(number) | `[1514, 1515]` | Wazuh events / enrollment |
@@ -174,9 +178,9 @@ Sensitive vars have **no default** (or empty) and are injected at apply from 1Pa
 | `ubuntu_ami_owner` | string | `099720109477` | Canonical; shared by both Ubuntu lookups |
 | `ubuntu_arm_ami_name` | string | `ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-arm64-server-*` | router only (arm64) |
 | `ubuntu_x86_ami_name` | string | `ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-amd64-server-*` | collector only (x86_64) |
-| `kali_ami_owner` | string | `aws-marketplace` | owner alias; Marketplace AMIs are owned by that account, not by a Kali publisher ID. Verified resolving 2026-09-26; launching also needs the Marketplace subscription |
-| `kali_ami_name` | string | `kali-last-snapshot-amd64-*` | |
-| `router_root_gb` / `attacker_root_gb` / `collector_root_gb` | number | `8` / `40` / `20` | gp3 encrypted |
+| `kali_ami_owner` | string | `aws-marketplace` | owner alias; Marketplace AMIs are owned by that account, not by a Kali publisher ID. Launching also needs the Marketplace subscription |
+| `kali_ami_name` | string | `debian-kali-last-snapshot-amd64-*-804fcc46-63fc-4eb6-85a1-50e66d6c7215` | Owner alone doesn't identify Kali: third-party Kali images share the `aws-marketplace` account. The UUID suffix is the official product and pins it. Kali renamed its images with a `debian-` prefix by 2026.1, which broke the old `kali-last-snapshot-amd64-*` filter |
+| `router_root_gb` / `attacker_root_gb` / `collector_root_gb` | number | `8` / `40` / `40` | gp3 encrypted. Collector raised from 20 on 2026-10-02: at 20 GiB the root disk filled about 2 min after `wazuh-manager` started (its content manager downloads the vulnerability feed), the dashboard unpack hit ENOSPC, and the installer rolled back the whole stack |
 | `siem_mount_point` | string | `/data` | collector mount for the SIEM volume |
 | `wazuh_version` | string | `4.14` | release branch; installer takes that branch's latest patch |
 | `wazuh_agent_pkg` | string | `4.14.6-1` | MSI/deb version the collector mirrors; **validated** to be on the same branch as `wazuh_version` |
@@ -188,6 +192,7 @@ Sensitive vars have **no default** (or empty) and are injected at apply from 1Pa
 | `attacker_install_bugbounty` | bool | `false` | also run SCRT `2-tools.sh` |
 | `attacker_enable_gui` | bool | `true` | i3 desktop over xrdp |
 | `attacker_rdp_password` | string | `""` | **sensitive**; kali unix password for xrdp login |
+| `wazuh_admin_password` | string | — (required) | **sensitive**; dashboard `admin`. Re-applied every collector boot because the persisted indexer data keeps the user hashes of the install that created it. Wazuh policy: 8-64 chars, upper + lower + digit + symbol, and symbols only from `. * + ? -` (validated) |
 | `ssh_public_key` | string | `""` | Public half only, so **not** sensitive. Inject from `op://Security/security_labs/public key`; validated as a single-line OpenSSH public key |
 | `ssh_key_name` | string | `""` | Reuse an existing EC2 key pair instead of registering one from `ssh_public_key` |
 
@@ -237,6 +242,7 @@ land in local state, which is treated sensitive at rest — `secrets.md`).
 | --- | --- | --- |
 | `tailscale_auth_key` | ops-tier | `op://Security/tailscale-range-router/authkey` |
 | `attacker_rdp_password` | ops-tier | `op://Security/scrt-attacker/password` |
+| `wazuh_admin_password` | ops-tier | `op://Security/wazuh-dashboard/password` |
 | `domain_admin_password` | multi-forest | `op://Security/range-ad/admin-password` |
 | `safe_mode_password` | multi-forest | `op://Security/range-ad/dsrm-password` |
 

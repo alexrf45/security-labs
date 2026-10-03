@@ -11,6 +11,13 @@
   floor. **ARM is now the router only.** Every cost figure in §2 and §7 reflects both moves:
   a multi-forest session went $2.72 → $2.86 → **$2.92/8 h**, and the monthly envelope 16 →
   15 → **14** single-forest sessions. The decision itself is unchanged.
+- **Amended:** 2026-10-02 — §3/§4(d) corrected after the first Phase 2 apply. An Internet
+  Gateway only carries traffic for instances that have a public IP, so the attacker and
+  collector had **no** egress through an IGW route ("reach the internet through the ops route
+  table" was wrong). The router now sits alone in a new `edge` subnet (`10.40.1.0/28`, the
+  only IGW route) and NATs the ops subnet, whose default route points at the router ENI.
+  That route is per-session and owned by `ops-tier`. Cost is unchanged ($0), still one public
+  IPv4.
 - **Date:** 2026-09-24
 - **Deciders:** fr3d (with Claude review)
 - **Related:** Implements the deferred provider/topology decision from
@@ -206,7 +213,8 @@ The subnet numbering deliberately preserves the ADR-0009 mnemonic — **40 = ops
 
 | Subnet | CIDR | Default route | Public IP | Purpose |
 | --- | --- | --- | --- | --- |
-| `ops` | 10.40.10.0/24 | → Internet Gateway | router only | Tailscale subnet router, attacker, collector |
+| `edge` | 10.40.1.0/28 | → Internet Gateway | router EIP | Tailscale subnet router only (NAT for ops) |
+| `ops` | 10.40.10.0/24 | → router ENI (per session) | **none** | attacker, collector |
 | `victim00` | 10.40.50.0/24 | **none** | **none** | scenario victims |
 | `victim01` | 10.40.51.0/24 | **none** | **none** | scenario victims |
 | `victimNN` | 10.40.5N.0/24 | **none** | **none** | future scenarios |
@@ -221,8 +229,10 @@ graph TB
     WS -.->|"Tailscale"| TS
 
     subgraph vpc["AWS VPC 10.40.0.0/16 — us-east-1a"]
-        subgraph ops["ops 10.40.10.0/24 — default route to IGW"]
-            R["Tailscale subnet router<br/>t4g.micro · public IPv4<br/>advertises 10.40.10.0/24 ONLY"]
+        subgraph edge["edge 10.40.1.0/28 — default route to IGW"]
+            R["Tailscale subnet router + NAT<br/>t4g.micro · public IPv4<br/>advertises 10.40.10.0/24 ONLY"]
+        end
+        subgraph ops["ops 10.40.10.0/24 — default route via router"]
             K["Attacker (Kali)<br/>t3.medium · no public IP"]
             C["Collector / SIEM<br/>t3.medium · persistent EBS"]
         end
@@ -235,7 +245,8 @@ graph TB
     end
 
     TS -.->|"advertised route"| R
-    ops --> IGW
+    ops -->|"NAT"| R
+    edge --> IGW
     R --- K
     K ==>|"SG: attacker to victim, any"| victim
     victim ==>|"SG + NACL: telemetry port to collector only"| C
@@ -244,7 +255,7 @@ graph TB
     classDef danger fill:#3a1f1f,stroke:#b34747,color:#f2dede
     classDef safe fill:#1f2f22,stroke:#4a8a5c,color:#dff0e4
     class victim,D1,D2,D3 danger
-    class ops,R,K,C safe
+    class edge,ops,R,K,C safe
 ```
 
 ### 4. Isolation decisions specific to AWS
@@ -294,8 +305,10 @@ Transit Gateway would restore two-way structural separation but costs ~$36/mo in
 attachment fees alone — it busts the entire ceiling by itself.
 
 **(d) Only the subnet router gets a public IPv4.** One address, $0.005/hr, present only
-while a session runs. The attacker and collector reach the internet through the ops
-route table without public addresses of their own.
+while a session runs. The attacker and collector have no public addresses and reach the
+internet through the router, which masquerades the ops subnet and logs each new outbound
+connection (`ops-egress:` in the kernel log). *(Corrected 2026-10-02: originally this said
+they used the ops route table's IGW route, which cannot work without a public IP.)*
 
 ### 5. Terraform layout and state
 

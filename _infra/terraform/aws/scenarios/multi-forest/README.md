@@ -39,11 +39,12 @@ tears down the domain and trust); `member_use_spot = true` puts only WS-A/WS-B o
 ## Usage
 
 ```console
-$ op run -- terraform init
-$ op run -- env \
-    TF_VAR_domain_admin_password="op://Security/range-ad/admin-password" \
-    TF_VAR_safe_mode_password="op://Security/range-ad/dsrm-password" \
-    terraform apply
+$ cat .envrc          # gitignored; 1Password references only, never values
+export TF_VAR_domain_admin_password="op://Security/range-ad/admin-password"
+export TF_VAR_safe_mode_password="op://Security/range-ad/dsrm-password"
+$ direnv allow
+$ op plugin run -- terraform init
+$ op run -- op plugin run -- terraform apply
 ```
 
 Promotion and trust creation span multiple reboots — allow **10–20 minutes**. Verify with

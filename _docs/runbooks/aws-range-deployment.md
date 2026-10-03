@@ -54,11 +54,29 @@ graph TB
 
 ### How commands are run
 
-Every `plan`/`apply`/`destroy` is run by you, wrapped in the 1Password CLI:
+Every `plan`/`apply`/`destroy` is run by you, wrapped in the 1Password CLI. Roots that
+take secrets carry a gitignored `.envrc` that exports `TF_VAR_*` as **1Password
+references, never values**. direnv loads it on `cd`:
 
 ```bash
-op run -- env TF_VAR_<name>="op://<vault>/<item>/<field>" terraform apply
+# <root>/.envrc — run `direnv allow` once after creating or editing it
+export TF_VAR_<name>="op://<vault>/<item>/<field>"
 ```
+
+Those roots need two 1Password layers. AWS credentials come from the 1Password **AWS
+shell plugin** (`op plugin run`), which injects them but does not resolve `op://`
+references. `op run` resolves the references but injects no plugin credentials. Chain them:
+
+```bash
+op run -- op plugin run -- terraform apply
+```
+
+Roots with no secret variables (`range-network`) need only the plugin layer.
+
+`op run` resolves references only from the environment it starts with. A variable set
+after it starts, such as `op run -- env TF_VAR_x="op://…" terraform apply`, reaches
+Terraform as the literal `op://…` string. Every secret variable rejects an `op://` value,
+so this fails at plan instead of shipping the reference string to a host.
 
 ---
 
@@ -126,6 +144,7 @@ Confirm every reference resolves. Quote the SSH one — its field name contains 
 ```bash
 op read "op://Security/tailscale-range-router/authkey"
 op read "op://Security/scrt-attacker/password"
+op read "op://Security/wazuh-dashboard/password"   # 8-64 chars; symbols only from . * + ? -
 op read "op://Security/range-ad/admin-password"
 op read "op://Security/range-ad/dsrm-password"
 op read "op://Security/security_labs/public key" | cut -d' ' -f1   # -> ssh-ed25519
@@ -192,7 +211,8 @@ Route tables must come out exactly like this — one IGW route in the whole rang
 | Table | Routes | Associations |
 | --- | --- | --- |
 | `<project>-victim-rt` | only `10.40.0.0/16 → local` | every victim subnet |
-| `<project>-ops-rt` | `local` **plus** `0.0.0.0/0 → igw-…` | the ops subnet only |
+| `<project>-edge-rt` | `local` **plus** `0.0.0.0/0 → igw-…` | the edge subnet only |
+| `<project>-ops-rt` | only `local` (Phase 2 adds `0.0.0.0/0 → eni-…`, the router) | the ops subnet only |
 | `<project>-main-rt-locked` | only `local` | none |
 
 Pass conditions:
@@ -214,19 +234,27 @@ Phase 1.
 
 ```bash
 cd _infra/terraform/aws/ops-tier
-op run -- terraform init
-op run -- env \
-  TF_VAR_tailscale_auth_key="op://Security/tailscale-range-router/authkey" \
-  TF_VAR_attacker_rdp_password="op://Security/scrt-attacker/password" \
-  TF_VAR_ssh_public_key="op://Security/security_labs/public key" \
-  terraform apply
+cat > .envrc <<'EOF'
+export TF_VAR_tailscale_auth_key="op://Security/tailscale-range-router/authkey"
+export TF_VAR_attacker_rdp_password="op://Security/scrt-attacker/password"
+export TF_VAR_ssh_public_key="op://Security/security_labs/public key"
+export TF_VAR_wazuh_admin_password="op://Security/wazuh-dashboard/password"
+EOF
+direnv allow
+op plugin run -- terraform init
+op run -- op plugin run -- terraform apply
 ```
 
-Add `TF_VAR_enable_agent_package_mirror=true` if you enabled the mirror in Phase 1.
+Add `export TF_VAR_enable_agent_package_mirror=true` to `.envrc` if you enabled the mirror
+in Phase 1.
+
+Pre-flight: the official Kali AMI resolves. The UUID suffix is Kali's Marketplace product,
+which filters out third-party Kali images in the same `aws-marketplace` account.
 
 ```bash
 op run -- aws ec2 describe-images --owners aws-marketplace \
-  --filters 'Name=name,Values=kali-last-snapshot-amd64-*' --query 'length(Images)'
+  --filters 'Name=name,Values=debian-kali-last-snapshot-amd64-*-804fcc46-63fc-4eb6-85a1-50e66d6c7215' \
+  --query 'length(Images)'
 ```
 
 ### Approve the advertised route
@@ -247,9 +275,34 @@ tailscale status | grep range-router
 
 | Host | Check |
 | --- | --- |
-| Router | In `tailscale status` **and** `10.40.10.0/24` approved and reachable. `tailscale ssh range-router`. First boot needs a minute (`/var/log/cloud-init-output.log`). |
+| Router | In `tailscale status` **and** `10.40.10.0/24` approved and reachable. `tailscale ssh ubuntu@range-router` (it sits in the edge subnet, which is not advertised). First boot needs a minute (`/var/log/cloud-init-output.log`). NAT check: `sudo iptables -t nat -S POSTROUTING` shows the `MASQUERADE` rule for `10.40.10.0/24`; `sudo journalctl -k \| grep ops-egress` lists outbound connections from the ops subnet. |
 | Attacker | `ssh kali@<attacker_private_ip>`. First boot builds SCRT + i3 — allow several minutes, watch `/var/log/attacker-bootstrap.log`. Then RDP `:3389`. |
-| Collector | `ssh ubuntu@<collector_private_ip>`; dashboard at `https://<collector_private_ip>`. `/var/log/collector-bootstrap.log` should open with `SIEM volume vol-… resolved to /dev/…`. |
+| Collector | `ssh ubuntu@<collector_private_ip>`; dashboard at `https://<collector_private_ip>`, user `admin`, password from `wazuh-dashboard` in 1Password (re-applied every boot). `/var/log/collector-bootstrap.log` should open with `SIEM volume vol-… resolved to /dev/…` and end with `dashboard admin password set from 1Password`. On a `WARN: password sync failed`, read `/root/wazuh-passwords-sync.log` (root-only: it contains passwords). |
+
+### Attacker browser: proxies and Burp CA
+
+The attacker bootstrap configures Firefox and the desktop. Two steps are left to you,
+once per deployment.
+
+| What | How it's configured | Your step |
+| --- | --- | --- |
+| Dark desktop | GTK 3/4 `settings.ini` (`gtk-application-prefer-dark-theme=1`) plus a system dconf `color-scheme='prefer-dark'` | none |
+| Firefox dark theme, FoxyProxy | Enterprise policy, merged into `/usr/share/firefox-esr/distribution/policies.json`: FoxyProxy (`foxyproxy@eric.h.jung`) is force-installed from addons.mozilla.org; the built-in dark theme and dark web content are defaults you can change | none |
+| FoxyProxy entries | `~/foxyproxy-lab.json` in FoxyProxy's own settings format: **Burp** HTTP `127.0.0.1:8080`, **Tor** SOCKS5 `127.0.0.1:9050`, **SOCKS** SOCKS5 `127.0.0.1:7000` (both SOCKS entries proxy DNS) | FoxyProxy → **Options** tab → **Import** → pick the file, then check the **Proxies** tab lists all three and click **Save**. Import alone only fills the form; nothing is stored until Save succeeds, and a failed Save just outlines the bad field in red |
+| Burp CA trusted by Firefox | The policy's `Certificates.Install` points at `~/.config/burp/burp-ca.der`. `/usr/local/bin/burp-trust` saves the running Burp's CA (from `http://127.0.0.1:8080/cert`) there, and i3 runs it at login, polling for up to an hour | Open Burp once and accept its licence, then **restart Firefox** |
+
+Why it's built this way:
+
+- **FoxyProxy entries are imported, not pushed by policy.** FoxyProxy does read
+  Firefox-managed settings (`storage.managed`), but in that mode its popup refuses to
+  switch proxies (`processSelect` returns early when `pref.managed` is set; FoxyProxy
+  9.8 source). A policy-pushed config would pin you to one mode.
+- **The Burp CA can't be fetched at boot.** Burp creates its CA for the `kali` user on
+  first launch, and headless Burp Community stops at its licence agreement. Accepting that
+  for you is not something the bootstrap does. The CA persists in
+  `~/.java/.userPrefs/burp/prefs.xml`, so this is once per deployment.
+- **Firefox reads policy certificates only at startup**, hence the restart. If Burp was
+  opened after the i3 watcher gave up, run `burp-trust` by hand.
 
 ---
 
@@ -260,15 +313,17 @@ Two AD forests joined by a two-way trust: four Windows hosts across `victim00` a
 
 ```bash
 cd _infra/terraform/aws/scenarios/multi-forest
-op run -- terraform init
+cat > .envrc <<'EOF'
+export TF_VAR_domain_admin_password="op://Security/range-ad/admin-password"
+export TF_VAR_safe_mode_password="op://Security/range-ad/dsrm-password"
+EOF
+direnv allow
+op plugin run -- terraform init
 
 # Always pass the usage file: infracost prices Windows AMIs as Linux.
 infracost breakdown --path . --usage-file infracost-usage.yml
 
-op run -- env \
-  TF_VAR_domain_admin_password="op://Security/range-ad/admin-password" \
-  TF_VAR_safe_mode_password="op://Security/range-ad/dsrm-password" \
-  terraform apply
+op run -- op plugin run -- terraform apply
 ```
 
 - `TF_VAR_member_use_spot=true` runs the two workstations on spot (~$2.32 / 8h). DCs never
@@ -294,9 +349,12 @@ Reverse order. **Leave `range-network` applied** — its SIEM volume carries the
 between sessions.
 
 ```bash
-cd _infra/terraform/aws/scenarios/multi-forest && op run -- terraform destroy
-cd ../../ops-tier                              && op run -- terraform destroy
+cd _infra/terraform/aws/scenarios/multi-forest && op run -- op plugin run -- terraform destroy
+cd ../../ops-tier                              && op run -- op plugin run -- terraform destroy
 ```
+
+Destroy needs the chained form too: the secret variables are required, so Terraform
+evaluates them on destroy as well.
 
 Then confirm nothing is still running:
 
