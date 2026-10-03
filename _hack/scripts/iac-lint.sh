@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
-# IaC linter — fmt-check + validate for the active Terraform & Packer under _infra/.
+# IaC linter — fmt-check + validate (+ best-effort tflint) for the Terraform under
+# _infra/. Read-only: never touches state, secrets, or any cloud (`terraform init
+# -backend=false` + `validate` only). Calls the raw terraform binary so it bypasses
+# the 1Password CLI wrapper (that wrapper only matters for plan/apply and would
+# otherwise prompt for interactive auth). Override with TF_BIN / TFLINT_BIN.
 #
-# Read-only: never touches state, secrets, or the cluster (`terraform init
-# -backend=false` + `validate` only). Calls the raw terraform/packer binaries so it
-# bypasses the 1Password CLI wrapper (that wrapper only matters for plan/apply and
-# would otherwise prompt for interactive auth). Override with TF_BIN / PACKER_BIN.
-#
-# Lints everything under _infra/ (the abandoned Talos `dev` root + `talos-pve`
-# module were removed from the repo during the security-lab pivot).
+# Packer linting is intentionally omitted — image builds are deferred in the cloud
+# pivot and `packer` is not installed locally. Re-add a packer pass when golden-image
+# builds return (the Proxmox-era templates under _infra/packer/ are archived-in-place).
 #
 # Usage:  _hack/scripts/iac-lint.sh
-# Exit 0 = clean, 1 = a fmt/validate issue was found.
+# Exit 0 = clean, 1 = a fmt/validate/tflint issue was found.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF="${TF_BIN:-/usr/bin/terraform}"
-PK="${PACKER_BIN:-/usr/bin/packer}"
+TF="${TF_BIN:-$(command -v terraform || echo terraform)}"
+TFLINT="${TFLINT_BIN:-$(command -v tflint || true)}"
 TF_DIR="$ROOT/_infra/terraform"
-PK_DIR="$ROOT/_infra/packer"
+TFLINT_CFG="$ROOT/.tflint.hcl"
 fail=0
+skipped=0
 
 hr() { printf '\n=== %s ===\n' "$1"; }
 
@@ -39,40 +40,50 @@ while IFS= read -r d; do
     fi
   else
     echo "• skip  $rel   (terraform init failed — providers unavailable offline?)"
+    skipped=$((skipped + 1))
   fi
 done < <(
   find "$TF_DIR" -type d -name .terraform -prune \
     -o -name '*.tf' -printf '%h\n' | sort -u
 )
 
-hr "packer (fmt-check + validate)"
-if "$PK" fmt -check -recursive "$PK_DIR" >/dev/null 2>&1; then
-  echo "✓ ok    _infra/packer (fmt)"
+if [ -n "$TFLINT" ]; then
+  hr "tflint (best-effort per dir)"
+  while IFS= read -r d; do
+    rel="${d#"$ROOT"/}"
+    if ( cd "$d" && "$TFLINT" --no-color --config "$TFLINT_CFG" >/dev/null 2>&1 ); then
+      echo "✓ ok    $rel"
+    else
+      out="$( cd "$d" && "$TFLINT" --no-color --config "$TFLINT_CFG" 2>&1 )"
+      # A missing-plugin/init error offline is a skip, not a failure.
+      if printf '%s' "$out" | grep -qiE 'plugin|init|could not'; then
+        echo "• skip  $rel   (run: tflint --init --config .tflint.hcl)"
+        skipped=$((skipped + 1))
+      else
+        echo "✗ tflint $rel"
+        printf '%s\n' "$out"
+        fail=1
+      fi
+    fi
+  done < <(
+    find "$TF_DIR" -type d -name .terraform -prune \
+      -o -name '*.tf' -printf '%h\n' | sort -u
+  )
 else
-  echo "✗ fmt   _infra/packer   (fix: packer fmt -recursive _infra/packer)"
-  fail=1
-fi
-if ( cd "$PK_DIR" && "$PK" init . >/dev/null 2>&1 ); then
-  if ( cd "$PK_DIR" && "$PK" validate \
-        -var 'proxmox_url=https://example:8006/api2/json' \
-        -var 'proxmox_token_id=x!y' -var 'proxmox_token_secret=x' \
-        -var 'ubuntu_iso_checksum=sha256:0000000000000000000000000000000000000000000000000000000000000000' \
-        -var 'debian_iso_checksum=sha256:0000000000000000000000000000000000000000000000000000000000000000' \
-        . >/dev/null 2>&1 ); then
-    echo "✓ ok    _infra/packer (validate)"
-  else
-    echo "✗ valid _infra/packer"
-    ( cd "$PK_DIR" && "$PK" validate \
-        -var 'proxmox_url=https://example:8006/api2/json' \
-        -var 'proxmox_token_id=x!y' -var 'proxmox_token_secret=x' \
-        -var 'ubuntu_iso_checksum=sha256:0000000000000000000000000000000000000000000000000000000000000000' \
-        -var 'debian_iso_checksum=sha256:0000000000000000000000000000000000000000000000000000000000000000' . )
-    fail=1
-  fi
-else
-  echo "• skip  _infra/packer   (packer init failed — plugins unavailable offline?)"
+  echo "• tflint not found — skipping"
+  skipped=$((skipped + 1))
 fi
 
 hr "result"
-[ "$fail" -eq 0 ] && echo "✅ IaC lint passed" || echo "❌ IaC lint found issues"
+if [ "$fail" -ne 0 ]; then
+  echo "❌ IaC lint found issues"
+elif [ "$skipped" -ne 0 ]; then
+  # Skips used to print a bullet and still exit 0, so a run that checked nothing
+  # reported the same "passed" as a run that checked everything. Say so instead.
+  echo "⚠️  IaC lint passed what it could, but SKIPPED $skipped check(s) — see • lines above."
+  echo "   A skip is not a pass. Fix with: terraform init -backend=false (per root),"
+  echo "   and tflint --init --config .tflint.hcl"
+else
+  echo "✅ IaC lint passed (fmt + validate + tflint, incl. the AWS ruleset)"
+fi
 exit "$fail"

@@ -2,85 +2,96 @@
 
 ## What this repo is
 
-A **security research lab** (cyber range) built as reproducible Infrastructure as
-Code on a 6-node Proxmox cluster. The lab is for practicing offensive **and**
-defensive techniques, developing bespoke tools/payloads/detections for Linux and
-Windows hosts, and testing CVEs — in network segments that are isolated at the
-hypervisor level so detonating malware/payloads can never reach the home or
-management network.
+A **cloud-native security research lab** (cyber range) built as reproducible
+Infrastructure as Code. It exists to practice offensive **and** defensive security,
+develop bespoke tooling/payloads/detections for Linux and Windows hosts, and test
+CVEs — in cloud network segments isolated so that malware/payloads under test cannot
+reach the user's accounts, other segments, or the internet unfiltered.
 
-Environments are provisioned with **Terraform** (Proxmox SDN, RBAC, VMs) and
-**Packer** (golden VM templates). Secrets are handled with the 1Password CLI and
-SOPS. The range is VM-based and self-contained.
+## Implementation
 
-> History: this repo was previously a GitOps Kubernetes home lab (Flux/Talos). That
-> tree (`_clusters/`, `_lib/`, `global/`, `_templates/`), the Talos cluster root
-> (`dev`), and the `talos-pve` module have all been removed during the pivot.
+The range is provisioned with **Terraform** on **AWS** with local terraform state. Secrets are handled with **1Password** (source of truth) and **SOPS** (encrypted-in-repo files). Entrypoint into the lab via **Tailscale**. The lab is **ephemeral by design** and runs under a hard **$30/month** budget.
 
-## Lab goals & requirements
-
-- Practice offensive + defensive cybersecurity; build detections for Linux/Windows.
-- Test and understand CVEs and other vulnerabilities, with snapshot/rollback.
-- Reproducible environments via Terraform + Packer (no click-ops for scenarios).
-- **Hypervisor-level network segmentation** — detonation networks are air-gapped.
-- **Storage split:** TrueNAS iSCSI holds **lab-administrative** data only (SIEM
-  index, kept artifacts). Scenario/vulnerability disks live on **node-local**
-  storage and never touch the NAS.
+**The user runs `terraform plan`/`apply`/`destroy` manually**, wrapped in the 1Password
+CLI (`op run -- terraform apply`). Claude runs offline checks only — `validate`, `fmt`,
+`tflint`, `infracost breakdown` — and `_hack/scripts/guard-mutations.sh` blocks the rest
+mechanically. This stays in CLAUDE.md because `terraform.md` is path-scoped and is not
+in context until an `_infra/` file is opened.
 
 ## Start here
 
-The security range is built in phases. The entry point is the bring-up runbook:
-
-- **`_docs/runbooks/security-lab-bring-up.md`** — master Phase 0→2 checklist +
-  current build status.
-- **`_docs/decisions/0009-security-lab-segmentation.md`** — the design (ADR).
-- **`.claude/rules/lab-isolation.md`** — non-negotiable safety invariants. **Read
-  before any change to range networking, the `scenario-vm` module, or a scenario.**
+- **`_docs/README.md`** — documentation index / start-here.
+- **`_docs/decisions/0010-cloud-native-pivot.md`** — the pivot and its constraints.
+- **`_docs/decisions/0011-aws-provider-and-range-topology.md`** — provider & topology
+  (Accepted); implemented in `_infra/terraform/aws/`.
+- **`_docs/runbooks/aws-range-deployment.md`** — how to stand the range up, plus its
+  [status page](_docs/runbooks/aws-range-deployment-status.md) for what is applied.
+- **`.claude/rules/range-safety.md`** — non-negotiable isolation. **Read
+  before any change to range networking, the scenario module, or a scenario.**
+- **`.claude/rules/cost-guardrails.md`** — the $30 cost ceiling.
 
 ## Directory layout
 
-| Directory                     | Purpose                                                                                                                                                            |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `_infra/terraform/`           | Terraform: `modules/` (`proxmox-base`, `scenario-vm`); `security-lab/` (`range-network` shared plumbing [S3 state] + `scenarios/<name>` disposable labs [local state]) |
-| `_infra/packer/`              | Packer golden-image builds → node-local templates (ubuntu, kali, windows-server/10/11)                                                                            |
-| `_docs/`                      | Deployment info + insights: `decisions/` (ADRs), `runbooks/`, `reviews/`, `prerequisites.md`                                                                       |
-| `_hack/`                      | One-off scripts, utilities, and example YAML (yours or ours)                                                                                                       |
-| `.claude/rules/`              | Business rules (see below)                                                                                                                                         |
-| `.claude/commands/`           | Runnable slash commands                                                                                                                                            |
+```
+.
+├── .claude
+│   ├── agents
+│   ├── commands
+│   ├── output-styles
+│   ├── rules
+│   └── skills
+│       ├── active-directory-attacks
+│       ├── aws-cost-operations
+│       ├── commit
+│       ├── commit-push
+│       ├── malware-analyst
+│       └── threat-modeling-expert
+├── _docs
+│   ├── archive
+│   ├── decisions
+│   ├── reference
+│   ├── reviews
+│   └── runbooks
+├── _hack
+│   ├── nix
+│   └── scripts
+└── _infra
+    └── terraform
+        └── aws
+            ├── ops-tier
+            │   └── scripts
+            ├── range-network
+            └── scenarios
+                └── multi-forest
+```
 
-## How infrastructure is run
+## Business rules — `.claude/rules/`
 
-- **Terraform and Packer are run by you, manually, wrapped in the 1Password CLI**:
-  `op run -- terraform apply`, `op run -- packer build …`. Claude does not run
-  `apply`/`build`. Bare `terraform`/`packer` under the `op` plugin fail with
-  `interactive IO not available` (that's expected — use `terraform validate` /
-  `packer validate` for offline checks).
-- **State:** shared/persistent range plumbing (SDN, firewall) uses the **S3**
-  backend; each disposable scenario uses **local** state. A wiped/compromised
-  scenario must never corrupt shared infrastructure state.
-- **Secrets:** `terraform.tfvars`, `remote.tfbackend`, and Packer var-files are
-  **SOPS-encrypted** before commit. Never modify SOPS/secret files without explicit
-  user confirmation.
+Add new insights to the relevant file as discovered.
 
-## Business rules & documentation
+**Path-scoped** — these load only once a matching file is opened, so the gist lives
+here too:
 
-Rules for specific actions or design choices live in **`.claude/rules/`**. Add new
-insights/requirements there as discovered. Key ones:
+- **`terraform.md`** (`_infra/**`) — offline-only for Claude, fetch live provider docs
+  (Terraform MCP), local state, pinned versions, no `remote-exec`, SOPS.
+- **`documentation.md`** (`_docs/**`, `**/README.md`) — Markdown, Diátaxis, per-module
+  READMEs, Mermaid, ADR house format.
 
-- **`lab-isolation.md`** — the range's safety invariants (air-gap, node-local disks,
-  one-way telemetry). Highest priority for any range change.
-- **`terraform-buisness-rules.md`** — fetch live provider docs, S3-vs-local state,
-  `op`-wrapped applies, SOPS, prefer defaults.
-- **`secrets.md`** — secret handling; never pipe live credentials or re-encrypt SOPS
-  files without confirmation.
-- **`lab_architecture.md`** — hardware inventory (Proxmox nodes, UniFi, TrueNAS).
-- **`code.md`**, **`yaml-conventions.md`**, and the `*-review.md` rules — code/doc
-  quality and review criteria.
+## Key commands — `.claude/commands/`
 
-## Key commands
+| Command | Purpose |
+| --- | --- |
+| `/lint` | `terraform fmt`/`validate` + `tflint` across `_infra/` (read-only). |
+| `/cost` | Projected (`infracost`) + actual (provider bill) vs the $30 ceiling. |
+| `/lab-status` | "Did I leave something running?" — live instances, state, tailnet. |
+| `/lab-review` | Periodic posture review → `_docs/reviews/`. Sole owner of the 11-invariant audit. |
+| `/adr` | Scaffold the next ADR in house format. |
+| `/handoff` | Compact the session into `session-handoff-*` in persistent memory. |
 
-Runnable slash commands live in `.claude/commands/`:
+## Agents & skills
 
-| Command | Purpose                                                                   |
-| ------- | ------------------------------------------------------------------------- |
-| `/lint` | `fmt`-check + `validate` Terraform & Packer (`_hack/scripts/iac-lint.sh`)  |
+- **Agents** (user-invoked): `plan-challenger` — adversarial, read-only plan
+  review, with range-specific kill questions (budget, invariants, who-runs-apply).
+
+- Skills: `active-directory-attacks`, `malware-analyst`, `threat-modeling-expert`,
+  `aws-cost-operations`, `commit`/`commit-push`.

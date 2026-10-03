@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+exec > >(tee -a /var/log/collector-bootstrap.log) 2>&1
+
+# Egress is NAT through the router, which may still be booting.
+for _ in $(seq 1 60); do
+  curl -sS -o /dev/null --max-time 5 https://packages.wazuh.com && break
+  sleep 5
+done
+
+MOUNT="${mount_point}"
+WZ_VER="${wazuh_version}"
+MIRROR="${enable_mirror}"
+MIRROR_PORT="${mirror_port}"
+SERVE_SYSMON="${serve_sysmon}"
+AGENT_PKG="${wazuh_agent_pkg}"
+INDEXER_HEAP="${indexer_heap}"
+SENTINEL="$MOUNT/.wazuh-provisioned"
+
+VOL_ID="${siem_volume_id}"
+VOL_SERIAL="$(printf '%s' "$VOL_ID" | tr -d '-')" # vol-0abc123 -> vol0abc123
+DEV=""
+for _ in $( # 60 x 5s = 5 minutes
+  seq 1 60
+); do
+  while read -r bdev bserial; do
+    if [ "$bserial" = "$VOL_SERIAL" ]; then DEV="/dev/$bdev"; fi
+  done < <(lsblk -dno NAME,SERIAL)
+  if [ -z "$DEV" ]; then
+    for c in ${device} /dev/nvme1n1 /dev/xvdf; do
+      if [ -b "$c" ]; then
+        DEV="$c"
+        break
+      fi
+    done
+  fi
+  if [ -n "$DEV" ]; then break; fi
+  sleep 5
+done
+if [ -z "$DEV" ]; then
+  echo "SIEM volume $VOL_ID did not attach within 5 minutes; aborting"
+  exit 1
+fi
+echo "SIEM volume $VOL_ID resolved to $DEV"
+if ! blkid "$DEV"; then mkfs.ext4 -L siem "$DEV"; fi
+mkdir -p "$MOUNT"
+grep -q "LABEL=siem" /etc/fstab || echo "LABEL=siem $MOUNT ext4 defaults,nofail 0 2" >>/etc/fstab
+mount -a
+mkdir -p "$MOUNT/wazuh-indexer" "$MOUNT/ossec-etc" "$MOUNT/installers"
+
+# --- 2. Swap, as an OOM backstop ---------------------------------------------
+# The collector is under Wazuh's documented 4 vCPU / 8 GiB floor. Swap is
+# deliberate here despite OpenSearch preferring it off: do not remove it.
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >>/etc/fstab
+fi
+
+# --- 3. Install Wazuh single-node --------------------------------------------
+# Keyed on the packages, not the sentinel: the packages live on this instance's root
+# disk, so every fresh collector installs, even onto a volume that already has state.
+if ! dpkg -s wazuh-manager >/dev/null 2>&1; then
+  cd /root
+  curl -fsSLO "https://packages.wazuh.com/$WZ_VER/wazuh-install.sh"
+  # -a = all-in-one (manager + indexer + dashboard); -i skips health checks that
+  # fail on small boxes — including the 4 vCPU / 8 GiB one this instance does not meet,
+  # which is why the heap is pinned below rather than left to the installer's default.
+  bash ./wazuh-install.sh -a -i
+
+  # Pin the indexer JVM heap. Xms and Xmx must be equal (documented) to avoid runtime
+  # heap resizing. Left at the package default this can claim a large share of a 4 GiB
+  # box and starve the manager and dashboard.
+  JVM_OPTS=/etc/wazuh-indexer/jvm.options
+  if [ -f "$JVM_OPTS" ]; then
+    sed -i -E "s/^-Xms.*/-Xms$INDEXER_HEAP/; s/^-Xmx.*/-Xmx$INDEXER_HEAP/" "$JVM_OPTS"
+    grep -qE '^-Xms' "$JVM_OPTS" || echo "-Xms$INDEXER_HEAP" >>"$JVM_OPTS"
+    grep -qE '^-Xmx' "$JVM_OPTS" || echo "-Xmx$INDEXER_HEAP" >>"$JVM_OPTS"
+    echo "indexer heap pinned to $INDEXER_HEAP"
+  fi
+
+  # Relocate stateful dirs onto the persistent volume via bind mounts.
+  systemctl stop wazuh-dashboard wazuh-manager wazuh-indexer || true
+  if [ -d /var/lib/wazuh-indexer ] && [ -z "$(ls -A "$MOUNT/wazuh-indexer")" ]; then
+    cp -a /var/lib/wazuh-indexer/. "$MOUNT/wazuh-indexer/"
+  fi
+  if [ -d /var/ossec/etc ] && [ -z "$(ls -A "$MOUNT/ossec-etc")" ]; then
+    cp -a /var/ossec/etc/. "$MOUNT/ossec-etc/"
+  fi
+  touch "$SENTINEL"
+fi
+
+# --- 4. (Re)establish bind mounts, then start services -----------------------
+# Runs every boot so a fresh collector on an existing volume picks up prior state.
+systemctl stop wazuh-dashboard wazuh-manager wazuh-indexer || true
+for pair in "$MOUNT/wazuh-indexer:/var/lib/wazuh-indexer" "$MOUNT/ossec-etc:/var/ossec/etc"; do
+  src="$${pair%%:*}"
+  dst="$${pair##*:}"
+  mkdir -p "$dst"
+  grep -q " $dst " /etc/fstab || echo "$src $dst none bind,nofail 0 0" >>/etc/fstab
+  mountpoint -q "$dst" || mount --bind "$src" "$dst"
+done
+chown -R wazuh-indexer:wazuh-indexer /var/lib/wazuh-indexer || true
+systemctl daemon-reload
+systemctl enable --now wazuh-indexer wazuh-manager wazuh-dashboard || true
+
+# --- 5. Credentials, every boot ----------------------------------------------
+# The persisted indexer data carries the user hashes from the install that created
+# it, while a fresh collector generates new service passwords. -a resyncs every
+# internal user with the dashboard/Filebeat keystores; then admin is set from
+# 1Password. The tool prints passwords, so its output goes to a root-only file and
+# tracing stays off for the whole block.
+PWTOOL=/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh
+for _ in $(seq 1 60); do
+  curl -ks -o /dev/null --max-time 5 https://127.0.0.1:9200 && break
+  sleep 5
+done
+set +x
+ADMIN_PASSWORD="${admin_password}"
+PWLOG=/root/wazuh-passwords-sync.log
+(umask 077 && : >"$PWLOG")
+if bash "$PWTOOL" -a >>"$PWLOG" 2>&1 && bash "$PWTOOL" -u admin -p "$ADMIN_PASSWORD" >>"$PWLOG" 2>&1; then
+  echo "dashboard admin password set from 1Password (value not traced)."
+else
+  echo "WARN: password sync failed; see $PWLOG"
+fi
+unset ADMIN_PASSWORD
+set -x
+systemctl restart filebeat wazuh-dashboard || true
+
+if [ "$MIRROR" = "true" ]; then
+  cd "$MOUNT/installers"
+  [ -f "wazuh-agent.msi" ] ||
+    curl -fsSL "https://packages.wazuh.com/4.x/windows/wazuh-agent-$AGENT_PKG.msi" -o wazuh-agent.msi
+  [ -f "wazuh-agent.deb" ] ||
+    curl -fsSL "https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_$${AGENT_PKG}_amd64.deb" -o wazuh-agent.deb || true
+  if [ "$SERVE_SYSMON" = "true" ]; then
+    [ -f "Sysmon.zip" ] || curl -fsSL "https://download.sysinternals.com/files/Sysmon.zip" -o Sysmon.zip || true
+    [ -f "sysmonconfig.xml" ] || curl -fsSL \
+      "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml" \
+      -o sysmonconfig.xml || true
+  fi
+  cat >/etc/systemd/system/agent-mirror.service <<UNIT
+[Unit]
+Description=Wazuh agent installer mirror
+After=network-online.target
+[Service]
+WorkingDirectory=$MOUNT/installers
+ExecStart=/usr/bin/python3 -m http.server $MIRROR_PORT
+Restart=always
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now agent-mirror.service
+fi
+echo "collector provisioning complete"

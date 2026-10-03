@@ -1,0 +1,101 @@
+<powershell>
+$ErrorActionPreference = "Stop"
+Start-Transcript -Path "C:\bootstrap-dc.log" -Append
+
+$adds = Get-WindowsFeature -Name AD-Domain-Services
+
+if (-not $adds.Installed) {
+    try {
+        $admin = [ADSI]"WinNT://./Administrator,user"
+        $admin.SetPassword("${domain_admin_password}")
+        $admin.SetInfo()
+    } catch {
+        Write-Output "Could not set the local Administrator password: $_"
+    }
+
+    Install-WindowsFeature -Name AD-Domain-Services, DNS -IncludeManagementTools
+    $smpw = ConvertTo-SecureString "${safe_mode_password}" -AsPlainText -Force
+    Install-ADDSForest `
+        -DomainName "${domain}" `
+        -DomainNetbiosName "${netbios}" `
+        -SafeModeAdministratorPassword $smpw `
+        -InstallDns `
+        -Force
+    Stop-Transcript
+    return
+}
+
+Import-Module DnsServer -ErrorAction SilentlyContinue
+
+if (-not (Get-DnsServerZone -Name "${peer_domain}" -ErrorAction SilentlyContinue)) {
+    Add-DnsServerConditionalForwarderZone -Name "${peer_domain}" -MasterServers "${peer_dc_ip}"
+}
+
+%{ if create_trust ~}
+$trustScript = @'
+$ErrorActionPreference = "Stop"
+Start-Transcript -Path "C:\trust-task.log" -Append
+$peer   = "${peer_domain}"
+$peerIp = "${peer_dc_ip}"
+while (-not (Test-NetConnection -ComputerName $peerIp -Port 389 -InformationLevel Quiet)) {
+    Start-Sleep -Seconds 30
+}
+Start-Sleep -Seconds 60
+$localForest = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()
+$ctx = New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext(
+    "Forest", $peer, "$peer\Administrator", "${domain_admin_password}")
+$remoteForest = [System.DirectoryServices.ActiveDirectory.Forest]::GetForest($ctx)
+try {
+    $localForest.GetTrustRelationship($peer) | Out-Null
+    Write-Output "Trust already exists."
+} catch {
+    $localForest.CreateTrustRelationship($remoteForest, "Bidirectional")
+    Write-Output "Bidirectional forest trust created."
+}
+Unregister-ScheduledTask -TaskName "BootstrapForestTrust" -Confirm:$false
+Stop-Transcript
+'@
+$trustPath = "C:\bootstrap-trust.ps1"
+if (-not (Test-Path $trustPath)) {
+    Set-Content -Path $trustPath -Value $trustScript -Encoding UTF8
+    $action  = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -File $trustPath"
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $trigger.Delay = "PT2M"
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+    Register-ScheduledTask -TaskName "BootstrapForestTrust" -Action $action `
+        -Trigger $trigger -Principal $principal
+    Start-ScheduledTask -TaskName "BootstrapForestTrust"
+}
+%{ endif ~}
+
+%{ if wazuh_manager_ip != "" ~}
+try {
+    $mgr    = "${wazuh_manager_ip}"
+    $mirror = "http://${wazuh_manager_ip}:${wazuh_mirror_port}"
+    $agentExe = "C:\Program Files (x86)\ossec-agent\wazuh-agent.exe"
+    if (-not (Test-Path $agentExe)) {
+        Invoke-WebRequest -Uri "$mirror/wazuh-agent.msi" -OutFile "C:\wazuh-agent.msi" -UseBasicParsing -TimeoutSec 60
+        Start-Process msiexec.exe -Wait -ArgumentList "/i C:\wazuh-agent.msi /q WAZUH_MANAGER=$mgr WAZUH_REGISTRATION_SERVER=$mgr WAZUH_AGENT_GROUP=${wazuh_agent_group}"
+        Set-Service -Name WazuhSvc -StartupType Automatic
+        Start-Service WazuhSvc
+    }
+%{ if install_sysmon ~}
+    if (-not (Get-Service Sysmon64 -ErrorAction SilentlyContinue)) {
+        Invoke-WebRequest -Uri "$mirror/Sysmon.zip" -OutFile "C:\Sysmon.zip" -UseBasicParsing -TimeoutSec 60
+        Expand-Archive -Path "C:\Sysmon.zip" -DestinationPath "C:\Sysmon" -Force
+        Invoke-WebRequest -Uri "$mirror/sysmonconfig.xml" -OutFile "C:\Sysmon\sysmonconfig.xml" -UseBasicParsing -TimeoutSec 60
+        & "C:\Sysmon\Sysmon64.exe" -accepteula -i "C:\Sysmon\sysmonconfig.xml"
+        $ossec = "C:\Program Files (x86)\ossec-agent\ossec.conf"
+        if ((Test-Path $ossec) -and -not (Select-String -Path $ossec -Pattern "Sysmon/Operational" -Quiet)) {
+            Add-Content -Path $ossec -Value "<ossec_config><localfile><location>Microsoft-Windows-Sysmon/Operational</location><log_format>eventchannel</log_format></localfile></ossec_config>"
+            Restart-Service WazuhSvc
+        }
+    }
+%{ endif ~}
+} catch { Write-Output "Wazuh/Sysmon provisioning skipped: $_" }
+%{ endif ~}
+
+Stop-Transcript
+</powershell>
+<persist>true</persist>

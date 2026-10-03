@@ -246,9 +246,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-_docs/site
-_docs/site-mkdocs
-
 
 # Local .terraform directories
 .terraform/
@@ -267,8 +264,6 @@ crash.*.log
 # to change depending on the environment.
 *.tfvars
 *.tfvars.json
-# Allow CI override (no secrets — branch name placeholder only)
-!terraform/hetzner/ci-override.tfvars.json
 
 # Ignore override files as they are usually used to override resources locally and so
 # are not checked in
@@ -297,9 +292,9 @@ csi-values.yaml
 truenas-credentials-secret.yaml
 ob-archiver.plain.yaml
 
-# MkDocs build output + local docs venv
+# Static docs-site build output + local docs venv (generator TBD)
 /site/
 .venv-docs/
 
-# /sprint-orchestrate runtime state (per-task accept.sh under .claude/sprints/<id>/ is tracked)
-.claude/sprint-state.json
+# infracost local cache
+.infracost/

@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars and SOPS-encrypt before committing
+# terraform.tfvars is gitignored; this .example is not and must hold no secrets.
+
+# project           = "security-labs"
+# aws_region        = "us-east-1"
+# availability_zone = "us-east-1a"
+
+# budget_alert_emails = ["you@example.com"]
+
+# Add more victim subnets as scenarios grow (mnemonic 5N = victimonation):
+# victim_subnets = {
+#   victim00 = "10.40.50.0/24"
+#   victim01 = "10.40.51.0/24"
+#   victim02 = "10.40.52.0/24"
+# }

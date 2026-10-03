@@ -1,3 +1,5 @@
+# Code Conventions
+
 ## Code Fixes
 
 Before suggesting any fix, do this: (1) state the exact error/symptom, (2) identify the failing component and read its actual config/logs, (3) form a hypothesis and tell me how you'll verify it, (4) THEN propose a fix. Do not iterate on speculative fixes.

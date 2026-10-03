@@ -1,0 +1,21 @@
+#cloud-config
+package_update: true
+bootcmd:
+  - sysctl -w net.ipv4.ip_forward=1
+  - 'iptables -t nat -C POSTROUTING -s ${ops_cidr} ! -d ${vpc_cidr} ! -o tailscale0 -j MASQUERADE || iptables -t nat -A POSTROUTING -s ${ops_cidr} ! -d ${vpc_cidr} ! -o tailscale0 -j MASQUERADE'
+  - 'iptables -C FORWARD -s ${ops_cidr} ! -d ${vpc_cidr} -m conntrack --ctstate NEW -j LOG --log-prefix "ops-egress: " || iptables -I FORWARD -s ${ops_cidr} ! -d ${vpc_cidr} -m conntrack --ctstate NEW -j LOG --log-prefix "ops-egress: "'
+write_files:
+  - path: /etc/sysctl.d/99-tailscale.conf
+    content: |
+      net.ipv4.ip_forward = 1
+      net.ipv6.conf.all.forwarding = 1
+  - path: /run/tailscale-authkey
+    permissions: '0600'
+    owner: 'root:root'
+    content: "${tailscale_auth_key}"
+runcmd:
+  - sysctl -p /etc/sysctl.d/99-tailscale.conf
+  - timeout 300 sh -c 'until curl -sS -o /dev/null --max-time 5 https://pkgs.tailscale.com; do sleep 5; done'
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - tailscale up --auth-key=file:/run/tailscale-authkey --advertise-routes=${ops_cidr} --hostname=${hostname} --accept-dns=false --ssh
+  - rm -f /run/tailscale-authkey

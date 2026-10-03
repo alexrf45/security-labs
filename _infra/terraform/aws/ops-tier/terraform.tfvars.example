@@ -1,0 +1,4 @@
+project           = "security-labs"
+aws_region        = "us-east-1"
+tailnet_hostname  = "range-router"
+enable_agent_package_mirror = true

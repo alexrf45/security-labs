@@ -1,6 +1,6 @@
 # ADR-0009: Security research lab — network segmentation & range topology
 
-- **Status:** **Accepted** 2026-06-11. The lab is pivoting to a security research range (offensive + defensive practice, bespoke Linux/Windows tooling & detections, CVE testing). Segmentation is enforced with **Proxmox SDN VLAN zones backed by the UniFi switch**; the EVPN overlay is abandoned (deleted from the live cluster 2026-06-10). Implemented in `_infra/terraform/security-lab/range-network/`.
+- **Status:** **Superseded by [ADR-0010](0010-cloud-native-pivot.md)** (2026-09-24). Originally **Accepted** 2026-06-11 for the *Proxmox* range: segmentation via **Proxmox SDN VLAN zones backed by the UniFi switch**, structural (gateway-less) air-gap, node-local disks. That range was built in-repo and `validate`-clean but **never deployed**; the project has since pivoted to a **cloud-native** range (ADR-0010). This ADR is retained for its segmentation/air-gap reasoning, which carries forward to the cloud design (`.claude/rules/range-safety.md`). The Proxmox runbooks are archived under `_docs/archive/proxmox/`.
 - **Date:** 2026-06-11
 - **Deciders:** fr3d (with Claude review)
 - **Related:** [ADR-0008](0008-talos-pve-sdn-network-topology.md) (EVPN/Simple-zone L2 behavior — the air-gap primitive reused here), [ADR-0004](0004-gpu-vfio-passthrough.md) (anubis GPU node). Supersedes the EVPN approach **for the range** (the prod-cluster networking question is tracked separately).
