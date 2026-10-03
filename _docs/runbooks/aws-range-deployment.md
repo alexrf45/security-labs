@@ -60,10 +60,6 @@ Every `plan`/`apply`/`destroy` is run by you, wrapped in the 1Password CLI:
 op run -- env TF_VAR_<name>="op://<vault>/<item>/<field>" terraform apply
 ```
 
-Non-secret overrides go in a gitignored `terraform.tfvars`. Most variables have working
-defaults, so you inject only the secrets each phase lists. **Local state holds plaintext
-secrets — never commit `*.tfstate`.**
-
 ---
 
 ## Phase 0 — Before you start
@@ -95,12 +91,9 @@ aws ec2 get-snapshot-block-public-access     # State: block-all-sharing
 aws ec2 get-instance-metadata-defaults       # HttpTokens: required, HopLimit: 1
 ```
 
-`range-network` re-checks the first on every plan and warns if it is off. The other two
-have no data source and stay on this checklist.
 
 ### 1Password items
 
-Vault `Security`. Referenced by item name only, never by value.
 
 | Item | Field | Used by | Notes |
 | --- | --- | --- | --- |
@@ -159,9 +152,6 @@ op run -- terraform apply
 
 Optional: `TF_VAR_enable_agent_package_mirror=true` for air-gapped agent installs. Needed
 for Phase 3 telemetry, and must match in Phase 2.
-
-There is **no budget confirmation email** — `EMAIL` subscribers need no opt-in. Verify with
-the commands below, not by waiting for mail.
 
 ### Verify
 
@@ -234,9 +224,6 @@ op run -- env \
 
 Add `TF_VAR_enable_agent_package_mirror=true` if you enabled the mirror in Phase 1.
 
-If the attacker box fails with "no AMI found", re-check the Kali lookup (verified
-2026-09-26):
-
 ```bash
 op run -- aws ec2 describe-images --owners aws-marketplace \
   --filters 'Name=name,Values=kali-last-snapshot-amd64-*' --query 'length(Images)'
@@ -250,11 +237,6 @@ inert until you approve it:
 > Tailscale admin console → **Machines** → `range-router` → **Edit route settings** →
 > approve `10.40.10.0/24`.
 
-Approval is manual by choice (`autoApprovers` is not used), and the router is recreated
-every session, so **do this on every Phase 2 apply**. Skipping it leaves a healthy-looking
-router with nothing reachable behind it.
-
-The ops CIDR is advertised; a victim CIDR never is.
 
 ### Verify
 
