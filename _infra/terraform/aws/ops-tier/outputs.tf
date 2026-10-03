@@ -17,9 +17,9 @@ output "collector_private_ip" {
 }
 
 output "ssh" {
-  description = "How to get a shell on each ops host once you are on the tailnet and the router is advertising the ops route. The router additionally accepts `tailscale ssh range-router`."
+  description = "Shell on each ops host once you are on the tailnet. The attacker and collector also need the advertised ops route approved."
   value = {
-    router    = "ssh ubuntu@${aws_instance.router.private_ip}"
+    router    = "tailscale ssh ubuntu@${var.tailnet_hostname}"
     attacker  = "ssh kali@${aws_instance.attacker.private_ip}"
     collector = "ssh ubuntu@${aws_instance.collector.private_ip}"
   }

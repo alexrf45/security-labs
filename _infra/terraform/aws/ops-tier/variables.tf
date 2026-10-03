@@ -13,6 +13,11 @@ variable "tailscale_auth_key" {
   description = "Tailscale auth key the subnet router joins the tailnet with. Must be reusable, ephemeral and pre-authorized."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = !startswith(var.tailscale_auth_key, "op://")
+    error_message = "tailscale_auth_key is an unresolved 1Password reference. Run under `op run --`."
+  }
 }
 
 variable "tailnet_hostname" {
@@ -64,9 +69,9 @@ variable "kali_ami_owner" {
 }
 
 variable "kali_ami_name" {
-  description = "Name filter for the attacker's Kali rolling amd64 AMI."
+  description = "Name filter for the attacker's Kali rolling amd64 AMI. The UUID suffix pins the official Kali Marketplace product."
   type        = string
-  default     = "kali-last-snapshot-amd64-*"
+  default     = "debian-kali-last-snapshot-amd64-*-804fcc46-63fc-4eb6-85a1-50e66d6c7215"
 }
 
 variable "router_root_gb" {
@@ -80,8 +85,9 @@ variable "attacker_root_gb" {
 }
 
 variable "collector_root_gb" {
-  type    = number
-  default = 20
+  description = "Collector root volume (GiB). Holds the Wazuh packages and the vulnerability feed, which the manager downloads at first start."
+  type        = number
+  default     = 40
 }
 
 variable "siem_mount_point" {
@@ -95,6 +101,28 @@ variable "wazuh_version" {
   description = "Wazuh release branch installed on the collector (manager + indexer + dashboard)."
   type        = string
   default     = "4.14"
+}
+
+variable "wazuh_admin_password" {
+  description = "Password for the Wazuh dashboard/indexer `admin` user, re-applied at every collector boot."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = !startswith(var.wazuh_admin_password, "op://")
+    error_message = "wazuh_admin_password is an unresolved 1Password reference. Run under `op run --`."
+  }
+
+  validation {
+    condition = (
+      can(regex("^[A-Za-z0-9.*+?-]{8,64}$", var.wazuh_admin_password)) &&
+      can(regex("[A-Z]", var.wazuh_admin_password)) &&
+      can(regex("[a-z]", var.wazuh_admin_password)) &&
+      can(regex("[0-9]", var.wazuh_admin_password)) &&
+      can(regex("[.*+?-]", var.wazuh_admin_password))
+    )
+    error_message = "wazuh_admin_password must be 8-64 characters with an upper, a lower, a digit and a symbol, and the only symbols Wazuh accepts are . * + ? -"
+  }
 }
 
 variable "wazuh_indexer_heap" {
@@ -161,6 +189,11 @@ variable "attacker_rdp_password" {
   type        = string
   sensitive   = true
   default     = ""
+
+  validation {
+    condition     = !startswith(var.attacker_rdp_password, "op://")
+    error_message = "attacker_rdp_password is an unresolved 1Password reference. Run under `op run --`."
+  }
 }
 
 variable "ssh_public_key" {

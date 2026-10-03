@@ -35,7 +35,7 @@ check "operator_ssh_key" {
 resource "aws_instance" "router" {
   ami                    = data.aws_ami.ubuntu_arm.id
   instance_type          = var.router_instance_type
-  subnet_id              = data.aws_subnet.ops.id
+  subnet_id              = data.aws_subnet.edge.id
   vpc_security_group_ids = [data.aws_security_group.router.id]
   key_name               = local.ssh_key_name
 
@@ -56,6 +56,7 @@ resource "aws_instance" "router" {
   user_data = templatefile("${path.module}/scripts/router.cloud-init.yaml.tftpl", {
     tailscale_auth_key = var.tailscale_auth_key
     ops_cidr           = data.aws_subnet.ops.cidr_block
+    vpc_cidr           = data.aws_vpc.range.cidr_block
     hostname           = var.tailnet_hostname
   })
 
@@ -75,6 +76,14 @@ resource "aws_eip" "router" {
   tags = {
     Name = "${var.project}-router-eip"
   }
+}
+
+# The ops subnet's only way out: NAT through the router. Lives here, not in
+# range-network, so it is destroyed with the router instead of blackholing.
+resource "aws_route" "ops_default" {
+  route_table_id         = data.aws_route_table.ops.id
+  destination_cidr_block = "0.0.0.0/0"
+  network_interface_id   = aws_instance.router.primary_network_interface_id
 }
 
 resource "aws_instance" "attacker" {
@@ -105,6 +114,9 @@ resource "aws_instance" "attacker" {
   })
 
   user_data_replace_on_change = true
+
+  # Bootstrap downloads at first boot, so the NAT path must exist before launch.
+  depends_on = [aws_route.ops_default, aws_eip.router]
 
   tags = {
     Name = "${var.project}-attacker"
@@ -143,9 +155,13 @@ resource "aws_instance" "collector" {
     mirror_port     = var.agent_package_mirror_port
     serve_sysmon    = var.serve_sysmon
     wazuh_agent_pkg = var.wazuh_agent_pkg
+    admin_password  = var.wazuh_admin_password
   })
 
   user_data_replace_on_change = true
+
+  # Bootstrap downloads at first boot, so the NAT path must exist before launch.
+  depends_on = [aws_route.ops_default, aws_eip.router]
 
   tags = {
     Name = "${var.project}-collector"

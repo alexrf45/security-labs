@@ -21,6 +21,22 @@ data "aws_subnet" "ops" {
   }
 }
 
+data "aws_subnet" "edge" {
+  vpc_id = data.aws_vpc.range.id
+  filter {
+    name   = "tag:Discovery"
+    values = ["range-subnet"]
+  }
+  filter {
+    name   = "tag:SubnetName"
+    values = ["edge"]
+  }
+}
+
+data "aws_route_table" "ops" {
+  subnet_id = data.aws_subnet.ops.id
+}
+
 data "aws_security_group" "router" {
   vpc_id = data.aws_vpc.range.id
   filter {

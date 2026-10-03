@@ -2,6 +2,12 @@
 set -euxo pipefail
 exec > >(tee -a /var/log/collector-bootstrap.log) 2>&1
 
+# Egress is NAT through the router, which may still be booting.
+for _ in $(seq 1 60); do
+  curl -sS -o /dev/null --max-time 5 https://packages.wazuh.com && break
+  sleep 5
+done
+
 MOUNT="${mount_point}"
 WZ_VER="${wazuh_version}"
 MIRROR="${enable_mirror}"
@@ -53,8 +59,10 @@ if [ ! -f /swapfile ]; then
   grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >>/etc/fstab
 fi
 
-# --- 3. Install Wazuh single-node (first run only) ---------------------------
-if [ ! -f "$SENTINEL" ]; then
+# --- 3. Install Wazuh single-node --------------------------------------------
+# Keyed on the packages, not the sentinel: the packages live on this instance's root
+# disk, so every fresh collector installs, even onto a volume that already has state.
+if ! dpkg -s wazuh-manager >/dev/null 2>&1; then
   cd /root
   curl -fsSLO "https://packages.wazuh.com/$WZ_VER/wazuh-install.sh"
   # -a = all-in-one (manager + indexer + dashboard); -i skips health checks that
@@ -97,6 +105,30 @@ done
 chown -R wazuh-indexer:wazuh-indexer /var/lib/wazuh-indexer || true
 systemctl daemon-reload
 systemctl enable --now wazuh-indexer wazuh-manager wazuh-dashboard || true
+
+# --- 5. Credentials, every boot ----------------------------------------------
+# The persisted indexer data carries the user hashes from the install that created
+# it, while a fresh collector generates new service passwords. -a resyncs every
+# internal user with the dashboard/Filebeat keystores; then admin is set from
+# 1Password. The tool prints passwords, so its output goes to a root-only file and
+# tracing stays off for the whole block.
+PWTOOL=/usr/share/wazuh-indexer/plugins/opensearch-security/tools/wazuh-passwords-tool.sh
+for _ in $(seq 1 60); do
+  curl -ks -o /dev/null --max-time 5 https://127.0.0.1:9200 && break
+  sleep 5
+done
+set +x
+ADMIN_PASSWORD="${admin_password}"
+PWLOG=/root/wazuh-passwords-sync.log
+(umask 077 && : >"$PWLOG")
+if bash "$PWTOOL" -a >>"$PWLOG" 2>&1 && bash "$PWTOOL" -u admin -p "$ADMIN_PASSWORD" >>"$PWLOG" 2>&1; then
+  echo "dashboard admin password set from 1Password (value not traced)."
+else
+  echo "WARN: password sync failed; see $PWLOG"
+fi
+unset ADMIN_PASSWORD
+set -x
+systemctl restart filebeat wazuh-dashboard || true
 
 if [ "$MIRROR" = "true" ]; then
   cd "$MOUNT/installers"

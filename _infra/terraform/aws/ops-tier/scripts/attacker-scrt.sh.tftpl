@@ -9,6 +9,12 @@
 set -uxo pipefail
 exec > >(tee -a /var/log/attacker-bootstrap.log) 2>&1
 
+# Egress is NAT through the router, which may still be booting.
+for _ in $(seq 1 60); do
+  curl -sS -o /dev/null --max-time 5 https://http.kali.org && break
+  sleep 5
+done
+
 SCRT_REPO="${scrt_repo_url}"
 INSTALL_BUGBOUNTY="${install_bugbounty}"
 ENABLE_GUI="${enable_gui}"
@@ -61,8 +67,8 @@ if [ "$ENABLE_GUI" = "true" ]; then
   apt-get install -y --no-install-recommends \
     xorg xserver-xorg xinit dbus-x11 \
     i3 i3status i3lock dmenu \
-    xrdp kitty fonts-powerline fonts-hack fonts-noto-color-emoji \
-    x11-xserver-utils feh || true
+    xrdp xorgxrdp kitty fonts-powerline fonts-hack fonts-noto-color-emoji \
+    x11-xserver-utils feh firefox-esr burpsuite dconf-cli || true
 
   # i3 launches from ~/.xsession, which xrdp's startwm.sh runs.
   cat > "$KALI_HOME/.xsession" <<'XSESSION'
@@ -104,6 +110,102 @@ bar {
     position top
 }
 I3CFG
+
+  # Dark desktop: GTK 3/4 apps (file dialogs, Firefox chrome) read settings.ini;
+  # libadwaita apps and Firefox's prefers-color-scheme read the dconf color-scheme.
+  for v in 3.0 4.0; do
+    mkdir -p "$KALI_HOME/.config/gtk-$v"
+    cat > "$KALI_HOME/.config/gtk-$v/settings.ini" <<'GTK'
+[Settings]
+gtk-theme-name=Adwaita
+gtk-application-prefer-dark-theme=1
+GTK
+  done
+  mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+  printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+  cat > /etc/dconf/db/local.d/00-dark <<'DCONF'
+[org/gnome/desktop/interface]
+color-scheme='prefer-dark'
+gtk-theme='Adwaita'
+DCONF
+  dconf update || true
+
+  # Firefox: FoxyProxy force-installed and the built-in dark theme as the default,
+  # via enterprise policy in the app's distribution dir, merged into any
+  # policies.json already there.
+  mkdir -p /usr/share/firefox-esr/distribution
+  python3 - <<'PY'
+import json, os
+src = "/usr/share/firefox-esr/distribution/policies.json"
+doc = json.load(open(src)) if os.path.exists(src) else {}
+p = doc.setdefault("policies", {})
+p.setdefault("ExtensionSettings", {})["foxyproxy@eric.h.jung"] = {
+    "installation_mode": "force_installed",
+    "install_url": "https://addons.mozilla.org/firefox/downloads/latest/foxyproxy-standard/latest.xpi",
+}
+prefs = p.setdefault("Preferences", {})
+prefs["extensions.activeThemeID"] = {"Value": "firefox-compact-dark@mozilla.org", "Status": "default"}
+prefs["layout.css.prefers-color-scheme.content-override"] = {"Value": 0, "Status": "default"}
+certs = p.setdefault("Certificates", {}).setdefault("Install", [])
+burp_ca = "/home/kali/.config/burp/burp-ca.der"
+burp_ca in certs or certs.append(burp_ca)
+json.dump(doc, open(src, "w"), indent=2)
+PY
+
+  # Burp's CA is per user and created the first time the operator opens Burp (and
+  # accepts its licence), so it can't be fetched at boot. burp-trust saves the running
+  # Burp's CA to the path the policy above installs from; i3 runs it at login and it
+  # waits for Burp. Firefox reads policy certificates at startup.
+  cat > /usr/local/bin/burp-trust <<'BURPTRUST'
+#!/bin/sh
+DEST="$HOME/.config/burp/burp-ca.der"
+mkdir -p "$(dirname "$DEST")"
+tries="$${BURP_TRUST_TRIES:-1}"
+while [ "$tries" -gt 0 ]; do
+  if curl -s --max-time 3 -o "$DEST.tmp" http://127.0.0.1:8080/cert && [ -s "$DEST.tmp" ]; then
+    if cmp -s "$DEST.tmp" "$DEST"; then
+      rm -f "$DEST.tmp"
+    else
+      mv "$DEST.tmp" "$DEST"
+      echo "Burp CA saved to $DEST. Restart Firefox to trust it."
+    fi
+    exit 0
+  fi
+  tries=$((tries - 1))
+  [ "$tries" -gt 0 ] && sleep 5
+done
+rm -f "$DEST.tmp"
+echo "Burp is not listening on 127.0.0.1:8080." >&2
+exit 1
+BURPTRUST
+  chmod 755 /usr/local/bin/burp-trust
+  echo 'exec --no-startup-id env BURP_TRUST_TRIES=720 /usr/local/bin/burp-trust' >> "$KALI_HOME/.config/i3/config"
+
+  # FoxyProxy import file: FoxyProxy Options tab > Import, then Save. Pushing these by policy
+  # would put FoxyProxy in managed mode, which blocks switching proxies from the popup.
+  cat > "$KALI_HOME/foxyproxy-lab.json" <<'FOXY'
+{
+  "mode": "disable",
+  "sync": false,
+  "autoBackup": false,
+  "passthrough": "",
+  "theme": "",
+  "container": {},
+  "commands": {},
+  "data": [
+    {"active": true, "title": "Burp", "type": "http", "hostname": "127.0.0.1", "port": "8080",
+     "username": "", "password": "", "cc": "", "city": "", "color": "#ff6633", "pac": "", "pacString": "",
+     "proxyDNS": true, "include": [], "exclude": [], "tabProxy": []},
+    {"active": true, "title": "Tor", "type": "socks5", "hostname": "127.0.0.1", "port": "9050",
+     "username": "", "password": "", "cc": "", "city": "", "color": "#7d4698", "pac": "", "pacString": "",
+     "proxyDNS": true, "include": [], "exclude": [], "tabProxy": []},
+    {"active": true, "title": "SOCKS", "type": "socks5", "hostname": "127.0.0.1", "port": "7000",
+     "username": "", "password": "", "cc": "", "city": "", "color": "#3399ff", "pac": "", "pacString": "",
+     "proxyDNS": true, "include": [], "exclude": [], "tabProxy": []}
+  ]
+}
+FOXY
+  chown "$KALI_USER:$KALI_USER" "$KALI_HOME/foxyproxy-lab.json"
 
   chown -R "$KALI_USER:$KALI_USER" "$KALI_HOME/.xsession" "$KALI_HOME/.config"
 

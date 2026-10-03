@@ -45,12 +45,22 @@ variable "domain_admin_password" {
   description = "Domain admin password, applied to both forests. Inject from 1Password at apply time."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = !startswith(var.domain_admin_password, "op://")
+    error_message = "domain_admin_password is an unresolved 1Password reference. Run under `op run --`."
+  }
 }
 
 variable "safe_mode_password" {
   description = "Directory Services Restore Mode (DSRM) password for both DCs."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = !startswith(var.safe_mode_password, "op://")
+    error_message = "safe_mode_password is an unresolved 1Password reference. Run under `op run --`."
+  }
 }
 
 variable "dc_instance_type" {
