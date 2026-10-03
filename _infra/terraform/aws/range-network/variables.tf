@@ -23,9 +23,15 @@ variable "vpc_cidr" {
 }
 
 variable "ops_subnet_cidr" {
-  description = "Ops subnet: the only subnet with a default route to the IGW. Mnemonic 40 = ops."
+  description = "Ops subnet for the attacker and collector. Its default route goes through the router, added per session by ops-tier."
   type        = string
   default     = "10.40.10.0/24"
+}
+
+variable "edge_subnet_cidr" {
+  description = "Edge subnet holding only the Tailscale router: the one subnet with a default route to the IGW."
+  type        = string
+  default     = "10.40.1.0/28"
 }
 
 variable "victim_subnets" {

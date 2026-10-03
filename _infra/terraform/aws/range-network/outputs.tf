@@ -8,6 +8,11 @@ output "ops_subnet_id" {
   value       = aws_subnet.ops.id
 }
 
+output "edge_subnet_id" {
+  description = "Edge subnet ID (router only; the one subnet routed to the IGW)."
+  value       = aws_subnet.edge.id
+}
+
 output "victim_subnet_ids" {
   description = "Victim subnet IDs by name."
   value       = { for k, s in aws_subnet.victim : k => s.id }

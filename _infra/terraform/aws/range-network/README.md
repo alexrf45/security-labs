@@ -5,7 +5,8 @@
 | Resource | Cost |
 | --- | --- |
 | VPC `10.40.0.0/16` with **DNS disabled** + DHCP option set (public resolvers) | $0 |
-| Ops subnet `10.40.10.0/24` + IGW route (the only routed subnet) | $0 |
+| Edge subnet `10.40.1.0/28` + IGW route (router only; the one IGW route) | $0 |
+| Ops subnet `10.40.10.0/24` — route table with no inline routes; `ops-tier` adds the default route via the router | $0 |
 | Victim subnets `10.40.5N.0/24` — no route, no public IP | $0 |
 | Victim NACL (stateless) | $0 |
 | Security groups: router / attacker / collector / victim | $0 |

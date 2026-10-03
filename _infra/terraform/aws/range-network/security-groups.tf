@@ -47,14 +47,21 @@ resource "aws_security_group" "attacker" {
 
 resource "aws_vpc_security_group_ingress_rule" "attacker_from_ops" {
   security_group_id = aws_security_group.attacker.id
-  description       = "Access via the Tailscale subnet router (masqueraded to the ops CIDR)"
+  description       = "From hosts on the ops subnet"
   ip_protocol       = "-1"
   cidr_ipv4         = var.ops_subnet_cidr
 }
 
+resource "aws_vpc_security_group_ingress_rule" "attacker_from_router" {
+  security_group_id            = aws_security_group.attacker.id
+  description                  = "Operator access over Tailscale, masqueraded to the router"
+  ip_protocol                  = "-1"
+  referenced_security_group_id = aws_security_group.router.id
+}
+
 resource "aws_vpc_security_group_egress_rule" "attacker_all" {
   security_group_id = aws_security_group.attacker.id
-  description       = "Reach victim hosts on any port, and pull tooling via the ops route"
+  description       = "Reach victim hosts on any port, and pull tooling via the router NAT"
   ip_protocol       = "-1"
   cidr_ipv4         = "0.0.0.0/0"
 }
@@ -84,7 +91,7 @@ resource "aws_vpc_security_group_ingress_rule" "collector_telemetry" {
 
 resource "aws_vpc_security_group_ingress_rule" "collector_ssh" {
   security_group_id = aws_security_group.collector.id
-  description       = "Operator SSH via the Tailscale subnet router"
+  description       = "SSH from hosts on the ops subnet"
   ip_protocol       = "tcp"
   from_port         = 22
   to_port           = 22
@@ -93,16 +100,48 @@ resource "aws_vpc_security_group_ingress_rule" "collector_ssh" {
 
 resource "aws_vpc_security_group_ingress_rule" "collector_dashboard" {
   security_group_id = aws_security_group.collector.id
-  description       = "SIEM dashboard reached over Tailscale via the router"
+  description       = "SIEM dashboard from hosts on the ops subnet"
   ip_protocol       = "tcp"
   from_port         = 443
   to_port           = 443
   cidr_ipv4         = var.ops_subnet_cidr
 }
 
+resource "aws_vpc_security_group_ingress_rule" "collector_ssh_from_router" {
+  security_group_id            = aws_security_group.collector.id
+  description                  = "Operator SSH over Tailscale, masqueraded to the router"
+  ip_protocol                  = "tcp"
+  from_port                    = 22
+  to_port                      = 22
+  referenced_security_group_id = aws_security_group.router.id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "collector_dashboard_from_router" {
+  security_group_id            = aws_security_group.collector.id
+  description                  = "SIEM dashboard over Tailscale, masqueraded to the router"
+  ip_protocol                  = "tcp"
+  from_port                    = 443
+  to_port                      = 443
+  referenced_security_group_id = aws_security_group.router.id
+}
+
+resource "aws_vpc_security_group_egress_rule" "collector_dns" {
+  for_each = {
+    for pair in setproduct(var.public_dns_resolvers, ["udp", "tcp"]) :
+    "${pair[0]}-${pair[1]}" => { resolver = pair[0], protocol = pair[1] }
+  }
+
+  security_group_id = aws_security_group.collector.id
+  description       = "DNS to the DHCP-provided public resolvers"
+  ip_protocol       = each.value.protocol
+  from_port         = 53
+  to_port           = 53
+  cidr_ipv4         = "${each.value.resolver}/32"
+}
+
 resource "aws_vpc_security_group_egress_rule" "collector_updates_https" {
   security_group_id = aws_security_group.collector.id
-  description       = "Package updates (HTTPS) via the ops route"
+  description       = "Package updates (HTTPS) via the router NAT"
   ip_protocol       = "tcp"
   from_port         = 443
   to_port           = 443
@@ -111,7 +150,7 @@ resource "aws_vpc_security_group_egress_rule" "collector_updates_https" {
 
 resource "aws_vpc_security_group_egress_rule" "collector_updates_http" {
   security_group_id = aws_security_group.collector.id
-  description       = "Package updates (HTTP) via the ops route"
+  description       = "Package updates (HTTP) via the router NAT"
   ip_protocol       = "tcp"
   from_port         = 80
   to_port           = 80
